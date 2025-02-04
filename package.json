@@ -1,21 +1,20 @@
 {
   "name": "koishi-plugin-hadesstar-bot",
   "description": "manage HadesStar drs lines and rs events",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
+  "author": "Junye <a1669525782@gmail.com>",
   "files": [
     "lib",
     "dist"
   ],
   "license": "MIT",
-  "scripts": {},
   "keywords": [
-    "chatbot",
+    "game",
     "koishi",
     "plugin"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.3"
   }
