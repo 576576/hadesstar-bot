@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
-  "author": "Junye <a1669525782@gmail.com>",
+  "contributor": "Junye <1669525782@qq.com>",
   "files": [
     "lib",
     "dist"
@@ -16,6 +16,6 @@
     "plugin"
   ],
   "peerDependencies": {
-    "koishi": "^4.18.3"
+    "koishi": "^4.18.7"
   }
 }
