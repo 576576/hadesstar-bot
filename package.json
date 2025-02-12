@@ -16,13 +16,18 @@
     "type": "git",
     "url": "git+https://github.com/576576/hadesstar-bot"
   },
-  "koishi":{
+  "koishi": {
     "description": {
       "en": "manage HadesStar drs lines and rs events",
       "zh": "仙女座星雲红星/红活bot的ts实现"
     },
     "preview": true,
-    "browser": true
+    "browser": true,
+    "service": {
+      "required": [
+        "database"
+      ]
+    }
   },
   "keywords": [
     "game",
