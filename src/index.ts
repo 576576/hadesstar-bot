@@ -1,5 +1,5 @@
 import { Context, Schema } from 'koishi'
-import {} from '@koishijs/plugin-adapter-onebot'
+import {} from 'koishi-plugin-adapter-onebot'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 
