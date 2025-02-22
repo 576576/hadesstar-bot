@@ -1,5 +1,6 @@
-import { Context, Schema, Session } from 'koishi'
+import { Context, Schema, Session, $ } from 'koishi'
 import { } from 'koishi-plugin-adapter-onebot'
+import { saohuaTalk } from './saohua'
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
@@ -9,8 +10,7 @@ export interface Config { }
 export const Config: Schema<Config> = Schema.object({})
 
 //初始化各种变量
-var drs_lines = [[], [], [], [], [], [], [], [], [], [], [], [], []]
-var defaultQQid = 11451419, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
+var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
 var drs_number = 0, qqid = defaultQQid
 
 declare module 'koishi' {
@@ -48,22 +48,22 @@ export function apply(ctx: Context) {
       type: 'integer',
       length: 2,
       initial: 6,
-      nullable: true,
+      nullable: false,
     },
     playRoutes: {
       type: 'array',
       initial: [0, 0, 0, 0, 0, 0],
-      nullable: true,
+      nullable: false,
     },
     techs: {
       type: 'array',
       initial: [0, 0, 0, 0],
-      nullable: true,
+      nullable: false,
     },
     group: {
       type: 'string',
       initial: '无集团',
-      nullable: true,
+      nullable: false,
     },
   }, {
     primary: 'qid',
@@ -71,7 +71,6 @@ export function apply(ctx: Context) {
   })
 
   // 初始化表dlines
-  ctx.database.drop('dlines')
   ctx.model.extend('dlines', {
     qid: {
       type: 'integer',
@@ -96,7 +95,82 @@ export function apply(ctx: Context) {
     autoInc: false,
   })
 
+  //重置 cz
+  ctx.command('cz')
+    .action(async (_) => {
+      // 重置players及dlines
+      ctx.database.drop('players')
+      ctx.model.extend('players', {
+        qid: {
+          type: 'integer',
+          length: 18,
+          initial: 0,
+          nullable: false,
+        },
+        licence: {
+          type: 'integer',
+          length: 2,
+          initial: 6,
+          nullable: false,
+        },
+        playRoutes: {
+          type: 'array',
+          initial: [0, 0, 0, 0, 0, 0],
+          nullable: false,
+        },
+        techs: {
+          type: 'array',
+          initial: [0, 0, 0, 0],
+          nullable: false,
+        },
+        group: {
+          type: 'string',
+          initial: '无集团',
+          nullable: false,
+        },
+      }, {
+        primary: 'qid',
+        autoInc: false,
+      })
+      ctx.database.drop('dlines')
+      ctx.model.extend('dlines', {
+        qid: {
+          type: 'integer',
+          length: 18,
+          initial: 0,
+          nullable: false,
+        },
+        lineType: {
+          type: 'string',
+          length: 5,
+          initial: 'K6',
+          nullable: false,
+        },
+        waitDue: {
+          type: 'integer',
+          length: 32,
+          initial: Date.now() + defaultWaitDueTime,
+          nullable: false,
+        },
+      }, {
+        primary: 'qid',
+        autoInc: false,
+      })
+    })
+
+  //调试 ts
+  ctx.command('ts')
+    .action(async (_) => {
+      console.clear()
+      console.log('\n\nplayers数据如下:\n——————————')
+      console.log(await ctx.database.get('players', { qid: { $gt: 0 } }))
+      console.log('dlines数据如下:\n——————————')
+      console.log(await ctx.database.get('dlines', { qid: { $gt: 0 } }))
+    })
+
   console.clear()
+
+  saohuaTalk(ctx)
 
   //主监听用户输入
   ctx.on('message', async (session) => {
@@ -108,7 +182,8 @@ export function apply(ctx: Context) {
     //测试 cs
     ctx.command('cs')
       .action(async (_) => {
-        session.send('ok')
+        // await session.sendQueued('ok')
+        console.log(await showAllLines(ctx, session))
       })
 
     //加入三人组队 D<7-12>
@@ -144,34 +219,23 @@ export function apply(ctx: Context) {
       .action(async (_, arg) => {
         drs_number = +arg
         if (isNaN(drs_number)) {
-          session.send(await showAllLines(ctx))
+          await session.sendQueued(await showAllLines(ctx, session))
         }
         else if (isValidDrsNum(drs_number)) {
-          session.send(await formatted_DrsN(ctx, `D${drs_number}`))
-          session.send(await formatted_DrsN(ctx, `K${drs_number}`))
+          await session.sendQueued(await showALine(ctx, session, drs_number))
         }
       })
 
     //查询个人信息 CX[qqid]
     ctx.command('CX [arg]')
       .action(async (_, arg) => {
-        await session.send(await formatted_playerdata(ctx, session))
+        await session.sendQueued(await formatted_playerdata(ctx, session))
       })
 
-    //更新信息 LR[科技/集团] 会弹报错，但功能正常，不管先
-    ctx.command('LR <arg:text>')
-      .option('pGroup', '', { fallback: false })
-      .alias('LR常驻集团', { options: { pGroup: true } })
-      .action(async ({ options }, arg) => {
-        console.log(`录入了 ${options.pGroup} ${arg}`)
+    //更新信息 LR[科技/集团]
+    ctx.command('LR <arg>')
+      .action(async (_, arg) => {
         if (arg == undefined) return
-        else if (options.pGroup) {
-          let player_group = arg.trim()
-          if (player_group != '') {
-            await ctx.database.upsert('players', () => [{ qid: qqid, group: player_group }])
-            await session.send(`已录入常驻集团 ${await getGroup(ctx, qqid)}`)
-          }
-        }
         else if (arg.at(0) == '创' && arg.indexOf('富') != -1) {
           let genesis = +arg.substring(1, arg.indexOf('富')),
             enrich = +arg.substring(arg.indexOf('富') + 1, arg.indexOf('延')),
@@ -180,7 +244,18 @@ export function apply(ctx: Context) {
           let techs_in = [genesis, enrich, rse, boost]
           if (!existNaN(genesis, enrich, rse, boost)) {
             await ctx.database.upsert('players', () => [{ qid: qqid, techs: techs_in }])
-            await session.send(`已录入${await getTech(ctx, qqid)}`)
+            await session.sendQueued(`已录入${await getTech(ctx, qqid)}`)
+          }
+        }
+      })
+    ctx.command('LR常驻集团 <arg>')
+      .action(async (_, arg) => {
+        if (arg == undefined) return
+        else {
+          let playerGroup = arg.trim()
+          if (playerGroup != '') {
+            await ctx.database.upsert('players', () => [{ qid: qqid, group: playerGroup }])
+            await session.sendQueued(`已录入常驻集团 ${await getGroup(ctx, qqid)}`)
           }
         }
       })
@@ -189,28 +264,38 @@ export function apply(ctx: Context) {
     ctx.command('SQ')
       .action(async (_, arg) => {
         //此处应该授权车牌
-        await session.send(await formatted_playerdata(ctx, session))
+        await session.sendQueued(await formatted_playerdata(ctx, session))
       })
   })
 }
 
-async function join_drs(ctx: Context, session: Session, joinType: string) {
+async function join_drs(ctx: Context, session: Session, joinType: string): Promise<void> {
   let foundType = await findDrsFromId(ctx, session, qqid)
   if (foundType == 'K0') {
     await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
-    var drs_message = `${session.author.name} 成功加入${joinType}队伍\n——————————————\n发车人数 [${drs_lines[drs_number].length}/3]\n——————————————\n
-    ${await formatted_DrsN(ctx, joinType)}\n——————————————\n`
-    if (drs_lines[drs_number].length >= 3) {
-      drs_message += `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${drs_number}  ]`
+    let dinfo = await findIdFromDrs(ctx, joinType)
+    let lineNum = dinfo.length
+    let lineMaximum = joinType.indexOf('K') != -1 ? 2 : 3
+    var drs_message = `${session.author.name} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
+
+    //发车
+    if (lineNum >= lineMaximum) {
+      drs_message += `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${joinType.substring(1)}  ]`
       //发车后清空队伍
-      drs_lines[drs_number].length = 0
+      let lineLevel = (+joinType.substring(1)) - 7
+      for (const driverId of dinfo) {
+        let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
+        tmp[lineLevel] += 1
+        await ctx.database.upsert('players', () => [{ qid: qqid, playRoutes: tmp }])
+      }
+      await ctx.database.remove('dlines', { lineType: joinType })
     }
-    else drs_message += drs_timer(drs_number)
-    session.send(drs_message)
+    else drs_message += drs_timer(joinType)
+    await session.sendQueued(drs_message)
     return
   }
   else if (foundType == joinType)
-    session.send(`你已在${joinType}队伍中`)
+    await session.sendQueued(`你已在${joinType}队伍中`)
   else {
     let drs_num = drs_number
     await quit_drs(ctx, session)
@@ -219,10 +304,18 @@ async function join_drs(ctx: Context, session: Session, joinType: string) {
   }
 }
 
-async function findIdFromDrs(ctx: Context, checkType: string) {
+async function quit_drs(ctx: Context, session: Session): Promise<void> {
+  let foundType = await findDrsFromId(ctx, session, qqid)
+  if (foundType != 'K0') {
+    await ctx.database.remove('dlines', { qid: qqid })
+    await session.sendQueued(`${session.author.name} 已退出${foundType}队列`)
+  }
+  else await session.sendQueued("你未在队伍中")
+}
+
+async function findIdFromDrs(ctx: Context, checkType: string): Promise<number[]> {
   let dinfo = await ctx.database.get('dlines', { lineType: checkType })
   if (dinfo[0] == undefined) return []
-  console.log(dinfo[0])
   let foundIdList = []
   dinfo.forEach(element => {
     foundIdList.push(element.qid)
@@ -230,56 +323,50 @@ async function findIdFromDrs(ctx: Context, checkType: string) {
   return foundIdList
 }
 
-async function quit_drs(ctx: Context, session: Session) {
-  let foundType = await findDrsFromId(ctx, session, qqid)
-  if (foundType != 'K0') {
-    await ctx.database.remove('dlines', { qid: qqid })
-    session.send(`${session.author.name} 已退出D${drs_number}列队`)
-  }
-  else session.send("你未在队伍中")
-}
-
-async function findDrsFromId(ctx: Context, session: Session, playerId: number) {
+async function findDrsFromId(ctx: Context, session: Session, playerId: number): Promise<string> {
   let dinfo = await ctx.database.get('dlines', { qid: playerId })
   if (dinfo[0] == undefined) return 'K0'
   else if (Date.now() >= dinfo[0].waitDue) {
     await ctx.database.remove('dlines', { qid: playerId })
-    session.send(`@`)
+    await session.sendQueued(`@${await getNameFromQid(ctx, session, playerId)} 超时被踢出${dinfo[0].lineType}队列`)
     return 'K0'
   }
   else return dinfo[0].lineType
 }
 
-function isValidDrsNum(drs_num: number) {
-  return !isNaN(drs_num) && drs_num >= 7 && drs_num <= 12
-}
 
-async function formatted_DrsN(ctx: Context, targetType: string) {
+
+async function formatted_DrsN(ctx: Context, session: Session, targetType: string): Promise<string> {
+  let targetNum = +targetType.substring(1)
   let dinfo = await findIdFromDrs(ctx, targetType)
   if (dinfo.length == 0) return `${targetType}队列为空`
+  let tmp = []
   let drs_message = ''
-  drs_lines[targetType].forEach(async (playerId: number) => {
-    drs_message += `╔@${playerId}  ${await getPlayRoutes(ctx, playerId)}\n╚［${await getTech(ctx, qqid)}]\n`
-  })
-  console.log(drs_message)
+  for (const playerId of dinfo) {
+    let playerName = await getNameFromQid(ctx, session, playerId)
+    let playerRoute = await getPlayRoutes(ctx, playerId)
+    let playerTech = await getTech(ctx, playerId)
+    drs_message += `╔@${playerName}  ${playerRoute[targetNum - 7]}\n╚［${playerTech}]\n`
+  }
   return drs_message
 }
 
-async function showAllLines(ctx: Context) {
-  let linesMsg = '', tmp: string
+async function showAllLines(ctx: Context, session: Session): Promise<string> {
+  let linesMsg = '', lineMsg: string, tmp: string
   for (var i = 7; i <= 12; i++) {
-    tmp = await formatted_DrsN(ctx, `D${i}`)
-    if (!tmp.indexOf('队列为空'))
-      linesMsg += tmp
-    tmp = await formatted_DrsN(ctx, `K${i}`)
-    if (!tmp.indexOf('队列为空'))
-      linesMsg += tmp
+    lineMsg = ''
+    tmp = await formatted_DrsN(ctx, session, `D${i}`)
+    if (tmp.indexOf('队列为空') == -1) lineMsg += `D${i}队列—————\n${tmp}`
+    tmp = await formatted_DrsN(ctx, session, `K${i}`)
+    if (tmp.indexOf('队列为空') == -1) lineMsg += `K${i}队列—————\n${tmp}`
+    linesMsg += lineMsg
   }
+  if (linesMsg == '') return '所有队列为空'
   return linesMsg
 }
 
-async function showALines(ctx: Context, lineNum: number) {
-  return `${await formatted_DrsN(ctx, `D${lineNum}`)}\n——————————————\n${await formatted_DrsN(ctx, `K${lineNum}`)}`
+async function showALine(ctx: Context, session: Session, lineNum: number): Promise<string> {
+  return `D${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `D${lineNum}`)}K${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `K${lineNum}`)}`
 }
 
 async function getPlayRoutes(ctx: Context, playerId: number) {
@@ -291,11 +378,11 @@ async function getTech(ctx: Context, playerId: number) {
   return `创${techs_get[0]}富${techs_get[1]}延${techs_get[2]}强${techs_get[3]}`
 }
 
-async function getGroup(ctx: Context, playerId: number) {
+async function getGroup(ctx: Context, playerId: number): Promise<string> {
   return (await ctx.database.get('players', { qid: playerId }, ['group']))[0].group
 }
 
-async function getNameFromQid(ctx: Context, session: Session, playerId: number) {
+async function getNameFromQid(ctx: Context, session: Session, playerId: number): Promise<string> {
   if (!session.onebot) {
     // For test cases
     switch (playerId) {
@@ -305,18 +392,18 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number) 
     }
     return defaultName
   }
-  return session.onebot.getGroupMemberInfo(session.channelId, playerId)
+  return (await session.onebot.getGroupMemberInfo(session.channelId, playerId)).nickname
 }
 
-async function formatted_playerdata(ctx: Context, session: Session) {
-  return `@${session.author.name}\nQQ号: ${qqid}\n科技: ${await getTech(ctx, qqid)}\n集团: ${await getGroup(ctx, qqid)}`
+async function formatted_playerdata(ctx: Context, session: Session): Promise<string> {
+  return `@${session.author.name}\nQQ: ${qqid}\n场数: ${await getPlayRoutes(ctx, qqid)}\n科技: ${await getTech(ctx, qqid)}\n集团: ${await getGroup(ctx, qqid)}`
 }
 
-function drs_timer(drs_num: number) {
+function drs_timer(targetType: string): string {
   return `这是一个显示踢出计时器的占位符`
 }
 
-function getQQid(session: Session) {
+function getQQid(session: Session): number {
   if (!session.onebot) {
     // For test cases
     switch (session.author.name) {
@@ -329,7 +416,11 @@ function getQQid(session: Session) {
   return +session.author.id
 }
 
-function existNaN(...nums: number[]) {
+function isValidDrsNum(drs_num: number): boolean {
+  return !isNaN(drs_num) && drs_num >= 7 && drs_num <= 12
+}
+
+function existNaN(...nums: number[]): boolean {
   nums.forEach(num => {
     if (isNaN(num)) return true
   });
