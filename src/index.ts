@@ -1,6 +1,7 @@
-import { Context, Schema, Session, $ } from 'koishi'
+import { Context, Schema, Session, $, Permissions } from 'koishi'
 import { } from 'koishi-plugin-adapter-onebot'
 import { saohuaTalk } from './saohua'
+import { link } from 'fs'
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
@@ -96,7 +97,7 @@ export function apply(ctx: Context) {
   })
 
   //重置 cz
-  ctx.command('cz')
+  ctx.command('cz', '重置数据表', { authority: 3 })
     .action(async (_) => {
       // 重置players及dlines
       ctx.database.drop('players')
@@ -159,7 +160,7 @@ export function apply(ctx: Context) {
     })
 
   //调试 ts
-  ctx.command('ts')
+  ctx.command('ts', '调试数据表', { authority: 3 })
     .action(async (_) => {
       console.clear()
       console.log('\n\nplayers数据如下:\n——————————')
@@ -167,6 +168,11 @@ export function apply(ctx: Context) {
       console.log('dlines数据如下:\n——————————')
       console.log(await ctx.database.get('dlines', { qid: { $gt: 0 } }))
     })
+
+  //权限管理
+  ctx.permissions.provide('authority:3', async (name, session) => {
+    return session.onebot?.sender?.role === 'admin'
+  })
 
   console.clear()
 
@@ -180,7 +186,7 @@ export function apply(ctx: Context) {
     ctx.database.upsert('players', () => [{ qid: qqid }])
 
     //测试 cs
-    ctx.command('cs')
+    ctx.command('cs', '', { authority: 2 })
       .action(async (_) => {
         // await session.sendQueued('ok')
         console.log(await showAllLines(ctx, session))
@@ -209,11 +215,11 @@ export function apply(ctx: Context) {
       })
 
     //退出组队 TC
-    ctx.command('TC')
+    ctx.command('TC', '退出所有列队')
       .action(async (_) => { await quit_drs(ctx, session) })
 
     //查询组队情况 CK[7-12]
-    ctx.command('CK [arg]')
+    ctx.command('CK [arg]', '查询组队情况 例: CK CK9')
       .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
       .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
       .action(async (_, arg) => {
@@ -229,11 +235,18 @@ export function apply(ctx: Context) {
     //查询个人信息 CX[qqid]
     ctx.command('CX [arg]')
       .action(async (_, arg) => {
-        await session.sendQueued(await formatted_playerdata(ctx, session))
+        let tmp: number
+        if (arg == undefined) {
+          tmp = qqid
+        }
+        else tmp = +arg
+        if (!isNaN(tmp)) {
+          await session.sendQueued(await formatted_playerdata(ctx, session, tmp))
+        }
       })
 
     //更新信息 LR[科技/集团]
-    ctx.command('LR <arg>')
+    ctx.command('LR <arg>', 'LR 创0富0延0强0')
       .action(async (_, arg) => {
         if (arg == undefined) return
         else if (arg.at(0) == '创' && arg.indexOf('富') != -1) {
@@ -248,7 +261,7 @@ export function apply(ctx: Context) {
           }
         }
       })
-    ctx.command('LR常驻集团 <arg>')
+    ctx.command('LR常驻集团 <arg>', 'LR常驻集团 巨蛇座星雲')
       .action(async (_, arg) => {
         if (arg == undefined) return
         else {
@@ -260,16 +273,29 @@ export function apply(ctx: Context) {
         }
       })
 
-    //授权车牌 SQ
-    ctx.command('SQ')
-      .action(async (_, arg) => {
+    //授权车牌 SQ <qqid> <licence>
+    ctx.command('SQ <arg:number> <arg2:string>', '授权车牌 SQ 114514 D9', { authority: 2 })
+      .action(async (_, arg: number, arg2: string) => {
         //此处应该授权车牌
-        await session.sendQueued(await formatted_playerdata(ctx, session))
+        let tmp = +(arg2.substring(1).trim())
+        if (!isValidDrsNum(tmp)) {
+          await session.sendQueued('请输入正确车牌数字<7-12>')
+          return
+        }
+        await ctx.database.upsert('players', () => [{ qid: arg, licence: tmp }])
+        await session.sendQueued(`已授予D${tmp}车牌————\n${await formatted_playerdata(ctx, session, arg)}`)
       })
   })
 }
 
 async function join_drs(ctx: Context, session: Session, joinType: string): Promise<void> {
+  //检查车牌
+  let lineLevel = (+joinType.substring(1))
+  let driverLicence = await getLicence(ctx, qqid)
+  if (driverLicence < lineLevel) {
+    await session.sendQueued(`你未获得${joinType}车牌`)
+    return
+  }
   let foundType = await findDrsFromId(ctx, session, qqid)
   if (foundType == 'K0') {
     await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
@@ -282,10 +308,9 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
     if (lineNum >= lineMaximum) {
       drs_message += `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${joinType.substring(1)}  ]`
       //发车后清空队伍
-      let lineLevel = (+joinType.substring(1)) - 7
       for (const driverId of dinfo) {
         let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
-        tmp[lineLevel] += 1
+        tmp[lineLevel - 7] += 1
         await ctx.database.upsert('players', () => [{ qid: qqid, playRoutes: tmp }])
       }
       await ctx.database.remove('dlines', { lineType: joinType })
@@ -369,6 +394,10 @@ async function showALine(ctx: Context, session: Session, lineNum: number): Promi
   return `D${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `D${lineNum}`)}K${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `K${lineNum}`)}`
 }
 
+async function getLicence(ctx: Context, playerId: number) {
+  return (await ctx.database.get('players', { qid: playerId }, ['licence']))[0].licence
+}
+
 async function getPlayRoutes(ctx: Context, playerId: number) {
   return (await ctx.database.get('players', { qid: playerId }, ['playRoutes']))[0].playRoutes
 }
@@ -395,8 +424,8 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
   return (await session.onebot.getGroupMemberInfo(session.channelId, playerId)).nickname
 }
 
-async function formatted_playerdata(ctx: Context, session: Session): Promise<string> {
-  return `@${session.author.name}\nQQ: ${qqid}\n场数: ${await getPlayRoutes(ctx, qqid)}\n科技: ${await getTech(ctx, qqid)}\n集团: ${await getGroup(ctx, qqid)}`
+async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
+  return `@${session.author.name}\nQQ: ${playerId}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
 }
 
 function drs_timer(targetType: string): string {
