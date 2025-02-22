@@ -425,7 +425,7 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
 }
 
 async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
-  return `@${session.author.name}\nQQ: ${playerId}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
+  return `@${session.author.name}\nQQ: ${playerId}\n车牌: D${await getLicence(ctx, playerId)}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
 }
 
 function drs_timer(targetType: string): string {
