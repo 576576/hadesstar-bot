@@ -1,7 +1,8 @@
-import { Context, Schema, Session, $, Permissions } from 'koishi'
+import { Context, Schema, Session } from 'koishi'
 import { } from 'koishi-plugin-adapter-onebot'
+import { getQQid,isValidDrsNum,existNaN} from './utils'
 import { saohuaTalk } from './saohua'
-import { link } from 'fs'
+
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
@@ -432,26 +433,4 @@ function drs_timer(targetType: string): string {
   return `这是一个显示踢出计时器的占位符`
 }
 
-function getQQid(session: Session): number {
-  if (!session.onebot) {
-    // For test cases
-    switch (session.author.name) {
-      case 'Alice': return 1
-      case 'Bob': return 2
-      case 'Carol': return 3
-    }
-    return defaultQQid
-  }
-  return +session.author.id
-}
 
-function isValidDrsNum(drs_num: number): boolean {
-  return !isNaN(drs_num) && drs_num >= 7 && drs_num <= 12
-}
-
-function existNaN(...nums: number[]): boolean {
-  nums.forEach(num => {
-    if (isNaN(num)) return true
-  });
-  return false
-}
