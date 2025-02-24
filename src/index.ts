@@ -1,5 +1,5 @@
-import { Context, Schema, Session, Tables } from 'koishi'
-import { } from 'koishi-plugin-adapter-onebot'
+import { Context, h, Schema, Session, Tables } from 'koishi'
+import { CQCode } from 'koishi-plugin-adapter-onebot'
 import { saohuaTalk } from './saohua'
 
 
@@ -12,7 +12,7 @@ export const Config: Schema<Config> = Schema.object({})
 
 //初始化各种变量
 var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
-var qqid = defaultQQid, rs_event_status = false
+var rs_event_status = false
 
 declare module 'koishi' {
   interface Tables {
@@ -127,7 +127,7 @@ export function apply(ctx: Context) {
   })
 
   //重置 cz 管理指令
-  ctx.command('cz', '重置数据表', { authority: 3 })
+  ctx.command('cz', '重置数据表',)
     .action(async (_) => {
       // 重置players及dlines
       ctx.database.drop('players')
@@ -213,7 +213,7 @@ export function apply(ctx: Context) {
     })
 
   //调试 ts 管理指令
-  ctx.command('ts', '调试数据表', { authority: 3 })
+  ctx.command('ts', '调试数据表',)
     .action(async (_) => {
       console.clear()
       console.log('\n\n')
@@ -224,10 +224,10 @@ export function apply(ctx: Context) {
       }
     })
 
-  //权限管理
-  ctx.permissions.provide('authority:3', async (name, session) => {
-    return session.onebot?.sender?.role === 'admin'
-  })
+  // //权限管理
+  // ctx.permissions.provide('authority:3', async (name, session) => {
+  //   return session.onebot?.sender?.role === 'admin'
+  // })
 
   console.clear()
 
@@ -237,15 +237,19 @@ export function apply(ctx: Context) {
   ctx.on('message', async (session) => {
 
     //初始化会话监听
-    qqid = getQQid(session)
-    ctx.database.upsert('players', () => [{ qid: qqid }])
+    ctx.database.upsert('players', () => [{ qid: getQQid(session) }])
+
+    console.log(`\n${session.author.id}`)
 
     //测试 cs
-    ctx.command('cs', '', { authority: 2 })
+    ctx.command('cs', '',)
       .action(async (_) => {
-        // await session.sendQueued('ok')
+        // await session.onebot.sendGroupMsg(session.guildId,'ok')
         console.log(await showAllLines(ctx, session))
       })
+    if (session.author.id == '1669525782') {
+      session.onebot.sendGroupMsg(session.guildId, '[CQ:at,qq=1669525782]', false)
+    }
 
     //加入三人组队 D<7-12>
     ctx.command('D <arg>')
@@ -273,7 +277,7 @@ export function apply(ctx: Context) {
       .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
       .action(async (_, arg) => {
         if (!rs_event_status) {
-          session.sendQueued('红活未开启')
+          session.onebot.sendGroupMsg(session.guildId, '红活未开启')
         }
         if (isValidDrsNum(+arg)) {
           await join_rs_event(ctx, session, `HS${arg}`)
@@ -290,9 +294,9 @@ export function apply(ctx: Context) {
       .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
       .action(async (_, arg) => {
         if (isValidDrsNum(+arg)) {
-          await session.sendQueued(await showALine(ctx, session, +arg))
+          await session.onebot.sendGroupMsg(session.guildId, await showALine(ctx, session, +arg))
         }
-        else await session.sendQueued(await showAllLines(ctx, session))
+        else await session.onebot.sendGroupMsg(session.guildId, await showAllLines(ctx, session))
       })
 
     //查询个人信息 CX[qqid]
@@ -300,11 +304,11 @@ export function apply(ctx: Context) {
       .action(async (_, arg) => {
         let tmp: number
         if (arg == undefined) {
-          tmp = qqid
+          tmp = getQQid(session)
         }
         else tmp = +arg
         if (!isNaN(tmp)) {
-          await session.sendQueued(await formatted_playerdata(ctx, session, tmp))
+          await session.onebot.sendGroupMsg(session.guildId, await formatted_playerdata(ctx, session, tmp))
         }
       })
 
@@ -323,60 +327,65 @@ export function apply(ctx: Context) {
             if (!isValidTechNum(tech)) tmp = false
           }
           if (tmp) {
-            await ctx.database.upsert('players', () => [{ qid: qqid, techs: techs_in }])
-            await session.sendQueued(`已录入${await getTech(ctx, qqid)}`)
+            await ctx.database.upsert('players', () => [{ qid: getQQid(session), techs: techs_in }])
+            await session.onebot.sendGroupMsg(session.guildId, `已录入${await getTech(ctx, getQQid(session))}`)
           }
         }
       })
-    ctx.command('LR常驻集团 <arg>', 'LR常驻集团 巨蛇座星雲')
-      .action(async (_, arg) => {
-        if (arg == undefined) return
+    ctx.command('LR常驻集团 <arg> <arg2>', 'LR常驻集团 巨蛇座星雲')
+      .action(async (_, arg, arg2: string) => {
+        let tmp: number = await validateQQid(session, arg)
+        if (tmp == 0) return
+        if (arg2 == undefined) return
         else {
-          let playerGroup = arg.trim()
+          let playerGroup = arg2.trim()
           if (playerGroup != '') {
-            await ctx.database.upsert('players', () => [{ qid: qqid, group: playerGroup }])
-            await session.sendQueued(`已录入常驻集团 ${await getGroup(ctx, qqid)}`)
+            await ctx.database.upsert('players', () => [{ qid: tmp, group: playerGroup }])
+            await session.onebot.sendGroupMsg(session.guildId, `已录入常驻集团 ${await getGroup(ctx, tmp)}`)
           }
         }
       })
 
-    //授权车牌 SQ <qqid> <licence> 管理指令
-    ctx.command('SQ <arg:number> <arg2:string>', '授权车牌 SQ 114514 D9', { authority: 2 })
-      .action(async (_, arg: number, arg2: string) => {
+    //授权车牌 SQ <qqid/at> <licence> 管理指令
+    ctx.command('SQ <arg> <arg2:string>', '授权车牌 SQ 114514 D9',)
+      .action(async (_, arg, arg2: string) => {
         //此处应该授权车牌
-        let tmp = +(arg2.substring(1).trim())
+        let tmp: number = await validateQQid(session, arg)
+        if (tmp == 0) return
+        let tmp2 = +(arg2.substring(1).trim())
         if (!isValidDrsNum(tmp)) {
-          await session.sendQueued('请输入正确车牌数字<7-12>')
+          await session.onebot.sendGroupMsg(session.guildId, '请输入正确车牌数字<7-12>')
           return
         }
-        await ctx.database.upsert('players', () => [{ qid: arg, licence: tmp }])
-        await session.sendQueued(`已授予D${tmp}车牌————\n${await formatted_playerdata(ctx, session, arg)}`)
+        await ctx.database.upsert('players', () => [{ qid: tmp, licence: tmp2 }])
+        await session.onebot.sendGroupMsg(session.guildId, `已授予D${tmp}车牌————\n${await formatted_playerdata(ctx, session, tmp)}`)
       })
 
     //启动红活 KH 管理指令
     ctx.command('KH')
       .action(async (_) => {
-        await session.sendQueued('红星活动已开启\n输入HS7-12开始红活')
+        await session.onebot.sendGroupMsg(session.guildId, '红星活动已开启\n输入HS7-12开始红活')
         rs_event_status = true
       })
   })
+  return
 }
 
 async function join_drs(ctx: Context, session: Session, joinType: string): Promise<void> {
   //检查车牌
   let lineLevel = (+joinType.substring(1))
-  let driverLicence = await getLicence(ctx, qqid)
+  let driverLicence = await getLicence(ctx, getQQid(session))
   if (driverLicence < lineLevel) {
-    await session.sendQueued(`你未获得${joinType}车牌`)
+    await session.onebot.sendGroupMsg(session.guildId, `你未获得${joinType}车牌`)
     return
   }
-  let foundType = await findDrsFromId(ctx, session, qqid)
+  let foundType = await findDrsFromId(ctx, session, getQQid(session))
   if (foundType == 'K0') {
-    await ctx.database.upsert('elines', () => [{ qid: qqid, }])
+    await ctx.database.upsert('elines', () => [{ qid: getQQid(session), }])
     let dinfo = await findIdFromDrs(ctx, joinType)
     let lineNum = dinfo.length
     let lineMaximum = joinType.indexOf('K') != -1 ? 2 : 3
-    var drs_message = `${session.author.name} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
+    var drs_message = `${await getNameFromQid(ctx, session, getQQid(session))} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
 
     //发车
     if (lineNum >= lineMaximum) {
@@ -385,16 +394,16 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
       for (const driverId of dinfo) {
         let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
         tmp[lineLevel - 7] += 1
-        await ctx.database.upsert('players', () => [{ qid: qqid, playRoutes: tmp }])
+        await ctx.database.upsert('players', () => [{ qid: getQQid(session), playRoutes: tmp }])
       }
       await ctx.database.remove('dlines', { lineType: joinType })
     }
     else drs_message += await drs_timer(ctx, joinType)
-    await session.sendQueued(drs_message)
+    await session.onebot.sendGroupMsg(session.guildId, drs_message)
     return
   }
   else if (foundType == joinType)
-    await session.sendQueued(`你已在${joinType}队伍中`)
+    await session.onebot.sendGroupMsg(session.guildId, `你已在${joinType}队伍中`)
   else {
     await quit_drs(ctx, session)
     await join_drs(ctx, session, joinType)
@@ -402,29 +411,29 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
 }
 
 async function quit_drs(ctx: Context, session: Session): Promise<void> {
-  let foundType = await findDrsFromId(ctx, session, qqid)
+  let foundType = await findDrsFromId(ctx, session, getQQid(session))
   if (foundType != 'K0') {
-    await ctx.database.remove('dlines', { qid: qqid })
-    await session.sendQueued(`${session.author.name} 已退出${foundType}队列`)
+    await ctx.database.remove('dlines', { qid: getQQid(session) })
+    await session.onebot.sendGroupMsg(session.guildId, `${await getNameFromQid(ctx, session, getQQid(session))} 已退出${foundType}队列`)
   }
-  else await session.sendQueued("你未在队伍中")
+  else await session.onebot.sendGroupMsg(session.guildId, "你未在队伍中")
 }
 
 async function join_rs_event(ctx: Context, session: Session, joinType: string): Promise<void> {
   //检查车牌
   let lineLevel = (+joinType.substring(1))
-  let driverLicence = await getLicence(ctx, qqid)
+  let driverLicence = await getLicence(ctx, getQQid(session))
   if (driverLicence < lineLevel) {
-    await session.sendQueued(`你未获得${joinType}车牌`)
+    await session.onebot.sendGroupMsg(session.guildId, `你未获得${joinType}车牌`)
     return
   }
-  let foundType = await findDrsFromId(ctx, session, qqid)
+  let foundType = await findDrsFromId(ctx, session, getQQid(session))
   if (foundType == 'K0') {
-    await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
+    await ctx.database.upsert('dlines', () => [{ qid: getQQid(session), lineType: joinType }])
     let dinfo = await findIdFromDrs(ctx, joinType)
     let lineNum = dinfo.length
     let lineMaximum = joinType.indexOf('K') != -1 ? 2 : 3
-    var drs_message = `${session.author.name} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
+    var drs_message = `<>${await getNameFromQid(ctx, session, getQQid(session))} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
 
     //发车
     if (lineNum >= lineMaximum) {
@@ -433,16 +442,16 @@ async function join_rs_event(ctx: Context, session: Session, joinType: string): 
       for (const driverId of dinfo) {
         let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
         tmp[lineLevel - 7] += 1
-        await ctx.database.upsert('players', () => [{ qid: qqid, playRoutes: tmp }])
+        await ctx.database.upsert('players', () => [{ qid: getQQid(session), playRoutes: tmp }])
       }
       await ctx.database.remove('dlines', { lineType: joinType })
     }
     else drs_message += await drs_timer(ctx, joinType)
-    await session.sendQueued(drs_message)
+    await session.onebot.sendGroupMsg(session.guildId, drs_message)
     return
   }
   else if (foundType == joinType)
-    await session.sendQueued(`你已在${joinType}队伍中`)
+    await session.onebot.sendGroupMsg(session.guildId, `你已在${joinType}队伍中`)
   else {
     await quit_drs(ctx, session)
     await join_drs(ctx, session, joinType)
@@ -476,7 +485,7 @@ async function findDrsFromId(ctx: Context, session: Session, playerId: number): 
   if (dinfo[0] == undefined) return 'K0'
   else if (Date.now() >= dinfo[0].waitDue) {
     await ctx.database.remove('dlines', { qid: playerId })
-    await session.sendQueued(`@${await getNameFromQid(ctx, session, playerId)} 超时被踢出${dinfo[0].lineType}队列`)
+    await session.onebot.sendGroupMsg(session.guildId, `[CQ:at,qq=${playerId}]超时被踢出${dinfo[0].lineType}队列`)
     return 'K0'
   }
   else return dinfo[0].lineType
@@ -494,7 +503,7 @@ async function formatted_DrsN(ctx: Context, session: Session, targetType: string
     let playerName = await getNameFromQid(ctx, session, playerId)
     let playerRoute = await getPlayRoutes(ctx, playerId)
     let playerTech = await getTech(ctx, playerId)
-    drs_message += `╔@${playerName}  ${playerRoute[targetNum - 7]}\n╚［${playerTech}]\n`
+    drs_message += `╔[CQ:at,qq=${playerId}] ${playerRoute[targetNum - 7]}\n╚［${playerTech}]\n`
   }
   return drs_message
 }
@@ -548,7 +557,7 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
 }
 
 async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
-  return `@${session.author.name}\nQQ: ${playerId}\n车牌: D${await getLicence(ctx, playerId)}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
+  return `[CQ:at,qq=${playerId}]\nQQ: ${playerId}\n车牌: D${await getLicence(ctx, playerId)}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
 }
 
 async function drs_timer(ctx: Context, targetType: string): Promise<string> {
@@ -577,7 +586,19 @@ function getQQid(session: Session): number {
     }
     return defaultQQid
   }
-  return +session.author.id
+  return +session.onebot.user_id
+}
+
+async function validateQQid(session: Session, arg): Promise<number> {
+  let tmp: number = +arg.match("%[CQ:at,qq=([%d]*)%]")
+  if (isNaN(tmp)) {
+    tmp = +arg
+  }
+  if (isNaN(tmp)) {
+    await session.onebot.sendGroupMsg(session.guildId, '请输入正确用户或其qq号')
+    return NaN
+  }
+  return tmp
 }
 
 function isValidDrsNum(drs_num: number): boolean {
