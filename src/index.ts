@@ -1,6 +1,5 @@
-import { Context, h, Schema, Session, Tables } from 'koishi'
+import { Context, h, Schema, Session, sleep, Tables } from 'koishi'
 import { CQCode } from 'koishi-plugin-adapter-onebot'
-import { saohuaTalk } from './saohua'
 
 
 export const name = 'hadesstar-bot'
@@ -12,7 +11,7 @@ export const Config: Schema<Config> = Schema.object({})
 
 //初始化各种变量
 var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
-var rs_event_status = false
+var rs_event_status = false, isToSaohua = false
 
 declare module 'koishi' {
   interface Tables {
@@ -127,7 +126,7 @@ export function apply(ctx: Context) {
   })
 
   //重置 cz 管理指令
-  ctx.command('cz', '重置数据表',)
+  ctx.command('cz', '重置数据表', { authority: 2 })
     .action(async (_) => {
       // 重置players及dlines
       ctx.database.drop('players')
@@ -212,8 +211,8 @@ export function apply(ctx: Context) {
       })
     })
 
-  //调试 ts 管理指令
-  ctx.command('ts', '调试数据表',)
+  //调试 ts 群主及代理首席指令
+  ctx.command('ts', '调试数据表', { authority: 3 })
     .action(async (_) => {
       console.clear()
       console.log('\n\n')
@@ -224,32 +223,42 @@ export function apply(ctx: Context) {
       }
     })
 
-  // //权限管理
-  // ctx.permissions.provide('authority:3', async (name, session) => {
-  //   return session.onebot?.sender?.role === 'admin'
-  // })
+  //权限管理
+  ctx.permissions.provide('authority:3', async (name, session) => {
+    console.log(session.onebot?.sender?.role)
+    return session.onebot?.sender?.role === 'owner'
+  })
+  ctx.permissions.provide('authority:2', async (name, session) => {
+    console.log(session.onebot?.sender?.role)
+    return session.onebot?.sender?.role === 'admin'
+  })
 
   console.clear()
-
-  saohuaTalk(ctx)
 
   //主监听用户输入
   ctx.on('message', async (session) => {
 
+    console.log(session.onebot?.sender?.role)
+    // if (session.author.id == '1669525782') {
+    //   session.onebot.sendGroupMsg(session.guildId, '[CQ:at,qq=1669525782]', false)
+    // }
+    console.log(session.content.match(/<at\s+[^>]*id="(\d+)"/)[1])
+
     //初始化会话监听
     ctx.database.upsert('players', () => [{ qid: getQQid(session) }])
 
-    console.log(`\n${session.author.id}`)
+    console.log(`\n${session.author.id}: ${session.content}`)
 
-    //测试 cs
-    ctx.command('cs', '',)
+    isToSaohua = (Math.random() >= 0.85)
+    if (isToSaohua) saohuaTalk(session)
+
+    //测试 cs 管理指令
+    ctx.command('cs', '', { authority: 2 })
       .action(async (_) => {
-        // await session.onebot.sendGroupMsg(session.guildId,'ok')
+        await sleep(Math.random() * 1000)
+        await session.onebot.sendGroupMsg(session.guildId, 'ok')
         console.log(await showAllLines(ctx, session))
       })
-    if (session.author.id == '1669525782') {
-      session.onebot.sendGroupMsg(session.guildId, '[CQ:at,qq=1669525782]', false)
-    }
 
     //加入三人组队 D<7-12>
     ctx.command('D <arg>')
@@ -257,6 +266,7 @@ export function apply(ctx: Context) {
       .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
       .action(async (_, arg) => {
         if (isValidDrsNum(+arg)) {
+          await sleep(Math.random() * 1000)
           await join_drs(ctx, session, `D${+arg}`)
         }
       })
@@ -267,6 +277,7 @@ export function apply(ctx: Context) {
       .alias('K10', { args: ['10'] }).alias('K11', { args: ['11'] }).alias('K12', { args: ['12'] })
       .action(async (_, arg) => {
         if (isValidDrsNum(+arg)) {
+          await sleep(Math.random() * 1000)
           await join_drs(ctx, session, `K${+arg}`)
         }
       })
@@ -276,6 +287,7 @@ export function apply(ctx: Context) {
       .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
       .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
       .action(async (_, arg) => {
+        await sleep(Math.random() * 1000)
         if (!rs_event_status) {
           session.onebot.sendGroupMsg(session.guildId, '红活未开启')
         }
@@ -293,6 +305,7 @@ export function apply(ctx: Context) {
       .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
       .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
       .action(async (_, arg) => {
+        await sleep(Math.random() * 1000)
         if (isValidDrsNum(+arg)) {
           await session.onebot.sendGroupMsg(session.guildId, await showALine(ctx, session, +arg))
         }
@@ -308,6 +321,7 @@ export function apply(ctx: Context) {
         }
         else tmp = +arg
         if (!isNaN(tmp)) {
+          await sleep(Math.random() * 1000)
           await session.onebot.sendGroupMsg(session.guildId, await formatted_playerdata(ctx, session, tmp))
         }
       })
@@ -335,7 +349,7 @@ export function apply(ctx: Context) {
     ctx.command('LR常驻集团 <arg> <arg2>', 'LR常驻集团 巨蛇座星雲')
       .action(async (_, arg, arg2: string) => {
         let tmp: number = await validateQQid(session, arg)
-        if (tmp == 0) return
+        if (isNaN(tmp)) return
         if (arg2 == undefined) return
         else {
           let playerGroup = arg2.trim()
@@ -347,11 +361,11 @@ export function apply(ctx: Context) {
       })
 
     //授权车牌 SQ <qqid/at> <licence> 管理指令
-    ctx.command('SQ <arg> <arg2:string>', '授权车牌 SQ 114514 D9',)
+    ctx.command('SQ <arg> <arg2:string>', '授权车牌 SQ 114514 D9', { authority: 2 })
       .action(async (_, arg, arg2: string) => {
         //此处应该授权车牌
         let tmp: number = await validateQQid(session, arg)
-        if (tmp == 0) return
+        if (isNaN(tmp)) return
         let tmp2 = +(arg2.substring(1).trim())
         if (!isValidDrsNum(tmp)) {
           await session.onebot.sendGroupMsg(session.guildId, '请输入正确车牌数字<7-12>')
@@ -360,6 +374,12 @@ export function apply(ctx: Context) {
         await ctx.database.upsert('players', () => [{ qid: tmp, licence: tmp2 }])
         await session.onebot.sendGroupMsg(session.guildId, `已授予D${tmp}车牌————\n${await formatted_playerdata(ctx, session, tmp)}`)
       })
+    if (session.content.match("/SQ\[CQ:at,qq=(\d+)\]/") != null) {
+      let tmp = session.content.match("/SQ\[CQ:at,qq=(\d+)\]/")[0]
+      let tmp2 = session.content.match("/D\d+/")
+      if (tmp2 != null && isValidDrsNum(+tmp2[0]))
+        session.execute(`SQ ${tmp} ${tmp2}`)
+    }
 
     //启动红活 KH 管理指令
     ctx.command('KH')
@@ -553,7 +573,7 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
     }
     return defaultName
   }
-  return (await session.onebot.getGroupMemberInfo(session.channelId, playerId)).nickname
+  return (await session.onebot.getGroupMemberInfo(session.guildId, playerId)).nickname
 }
 
 async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
@@ -590,15 +610,15 @@ function getQQid(session: Session): number {
 }
 
 async function validateQQid(session: Session, arg): Promise<number> {
-  let tmp: number = +arg.match("%[CQ:at,qq=([%d]*)%]")
-  if (isNaN(tmp)) {
-    tmp = +arg
-  }
-  if (isNaN(tmp)) {
-    await session.onebot.sendGroupMsg(session.guildId, '请输入正确用户或其qq号')
+  let tmp = arg.match(/<at\s+[^>]*id="(\d+)"/), tmp2: number
+  if (tmp == null) tmp2 = +tmp
+  else tmp2 = tmp[1]
+
+  if (isNaN(tmp2)) {
+    await session.onebot.sendGroupMsg(session.guildId, '请@正确用户或输入其qq号')
     return NaN
   }
-  return tmp
+  return tmp2
 }
 
 function isValidDrsNum(drs_num: number): boolean {
@@ -607,4 +627,10 @@ function isValidDrsNum(drs_num: number): boolean {
 
 function isValidTechNum(techNum: number): boolean {
   return !isNaN(techNum) && techNum >= 1 && techNum <= 15
+}
+
+async function saohuaTalk(session: Session) {
+  let saohua = ['大哥你去哪了，我是你的小张飞呀!', '义父你去哪了，我是你的小奉先呀!', '你会.. 陪我打暗蓝么']
+  await sleep(Math.random() * 1000)
+  await session.sendQueued(saohua[Math.floor(Math.random() * saohua.length)])
 }
