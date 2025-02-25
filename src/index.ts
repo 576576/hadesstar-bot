@@ -1,5 +1,4 @@
-import { at } from '@satorijs/element/jsx-runtime'
-import { Context, h, Schema, Session, sleep, Tables } from 'koishi'
+import { Context, h, Schema, Session, sleep, Tables, $ } from 'koishi'
 import { CQCode } from 'koishi-plugin-adapter-onebot'
 
 
@@ -12,13 +11,14 @@ export const Config: Schema<Config> = Schema.object({})
 
 //初始化各种变量
 var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
-var rs_event_status = false, isToSaohua = false
+var rs_event_status: boolean, isToSaohua = false
 
 declare module 'koishi' {
   interface Tables {
     players: Players
     dlines: DrsLines
     elines: RsEventLines
+    erank: RsEventRanking
   }
 }
 
@@ -39,6 +39,12 @@ export interface RsEventLines {
   qid: number
   runScore: number
   lineId: number
+  lineType: string
+}
+export interface RsEventRanking {
+  qid: number
+  totalScore: number
+  totalRuns: number
 }
 
 export function apply(ctx: Context) {
@@ -118,12 +124,36 @@ export function apply(ctx: Context) {
     },
     lineId: {
       type: 'integer',
-      initial: 1000,
+      initial: 0,
       nullable: false,
     },
   }, {
     primary: 'lineId',
     autoInc: true,
+  })
+
+  // 初始化表erank
+  ctx.model.extend('erank', {
+    qid: {
+      type: 'integer',
+      length: 18,
+      initial: 0,
+      nullable: false,
+    },
+    totalScore: {
+      type: 'integer',
+      length: 8,
+      initial: 0,
+      nullable: false,
+    },
+    totalRuns: {
+      type: 'integer',
+      initial: 0,
+      nullable: false,
+    },
+  }, {
+    primary: 'qid',
+    autoInc: false,
   })
 
   //重置 cz 管理指令
@@ -219,7 +249,7 @@ export function apply(ctx: Context) {
 
   //调试 ts 群主及代理首席指令
   ctx.command('ts', '调试数据表', { authority: 2 })
-    .action(async ({session}) => {
+    .action(async ({ session }) => {
       console.clear()
       console.log('\n\n')
       let tsTables = ['players', 'dlines', 'elines']
@@ -229,145 +259,246 @@ export function apply(ctx: Context) {
       }
     })
 
-    //测试 cs 管理指令
-    ctx.command('cs', '', { authority: 2 })
-      .action(async ({session}) => {
+  //测试 cs 管理指令
+  ctx.command('cs', '', { authority: 2 })
+    .action(async ({ session }) => {
+      await sleep(Math.random() * 1000)
+      await session.onebot.sendGroupMsg(session.guildId, 'ok')
+      console.log(await showAllLines(ctx, session))
+    })
+
+  //加入三人组队 D<7-12>
+  ctx.command('D <arg>')
+    .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
+    .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      if (isValidDrsNum(+arg)) {
+        console.log(session.author)
         await sleep(Math.random() * 1000)
-        await session.onebot.sendGroupMsg(session.guildId, 'ok')
-        console.log(await showAllLines(ctx, session))
-      })
+        await join_drs(ctx, session, `D${+arg}`)
+      }
+    })
 
-    //加入三人组队 D<7-12>
-    ctx.command('D <arg>')
-      .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
-      .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
-      .action(async ({session}, arg) => {
-        if (isValidDrsNum(+arg)) {
-          console.log(session.author)
-          await sleep(Math.random() * 1000)
-          await join_drs(ctx, session, `D${+arg}`)
-        }
-      })
-
-    //加入双人组队 K<7-12>
-    ctx.command('K <arg>')
-      .alias('K7', { args: ['7'] }).alias('K8', { args: ['8'] }).alias('K9', { args: ['9'] })
-      .alias('K10', { args: ['10'] }).alias('K11', { args: ['11'] }).alias('K12', { args: ['12'] })
-      .action(async ({session}, arg) => {
-        if (isValidDrsNum(+arg)) {
-          await sleep(Math.random() * 1000)
-          await join_drs(ctx, session, `K${+arg}`)
-        }
-      })
-
-    //加入单人红活 HS<7-12>
-    ctx.command('HS <arg>')
-      .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
-      .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
-      .action(async ({session}, arg) => {
+  //加入双人组队 K<7-12>
+  ctx.command('K <arg>')
+    .alias('K7', { args: ['7'] }).alias('K8', { args: ['8'] }).alias('K9', { args: ['9'] })
+    .alias('K10', { args: ['10'] }).alias('K11', { args: ['11'] }).alias('K12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      if (isValidDrsNum(+arg)) {
         await sleep(Math.random() * 1000)
-        if (!rs_event_status) {
-          session.onebot.sendGroupMsg(session.guildId, '红活未开启')
-        }
-        if (isValidDrsNum(+arg)) {
-          await join_rs_event(ctx, session, `HS${arg}`)
-        }
-      })
+        await join_drs(ctx, session, `K${+arg}`)
+      }
+    })
 
-    //退出组队 TC
-    ctx.command('TC', '退出所有列队')
-      .action(async ({session}) => {
-        await quit_drs(ctx, session)
-      })
+  //加入单人红活 HS<7-12>
+  ctx.command('HS <arg>')
+    .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
+    .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      await sleep(Math.random() * 1000)
+      if (!rs_event_status) {
+        session.onebot.sendGroupMsg(session.guildId, '红活未开启')
+        return
+      }
+      if (isValidDrsNum(+arg)) {
+        await join_rs_event(ctx, session, `HS${arg}`)
+      }
+    })
 
-    //查询组队情况 CK[7-12]
-    ctx.command('CK [arg]', '查询组队情况 例: CK CK9')
-      .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
-      .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
-      .action(async ({session}, arg) => {
+  //退出组队 TC
+  ctx.command('TC', '退出所有列队')
+    .action(async ({ session }) => {
+      await quit_drs(ctx, session)
+    })
+
+  //查询组队情况 CK[7-12]
+  ctx.command('CK [arg]', '查询组队情况 例: CK CK9')
+    .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
+    .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      await sleep(Math.random() * 1000)
+      if (isValidDrsNum(+arg)) {
+        await session.onebot.sendGroupMsg(session.guildId, await showALine(ctx, session, +arg))
+      }
+      else await session.onebot.sendGroupMsg(session.guildId, await showAllLines(ctx, session))
+    })
+
+  //查询个人信息 CX[getQQid(session)]
+  ctx.command('CX [arg]')
+    .action(async ({ session }, arg) => {
+      let tmp: number
+      if (arg == undefined) tmp = getQQid(session)
+      else tmp = validateQQid(arg)
+
+      console.log(`${getQQid(session)}: 试图查询${tmp}信息`)
+      if (tmp != null) {
         await sleep(Math.random() * 1000)
-        if (isValidDrsNum(+arg)) {
-          await session.onebot.sendGroupMsg(session.guildId, await showALine(ctx, session, +arg))
+        await session.onebot.sendGroupMsg(session.guildId, await formatted_playerdata(ctx, session, tmp))
+      }
+    })
+
+  //更新信息 LR[科技/集团]
+  ctx.command('LR <arg>', 'LR 创0富0延0强0')
+    .action(async ({ session }, arg) => {
+      if (arg == undefined) return
+      let techs_in: number[] = validateTechs(arg)
+      if (techs_in != null) {
+        await ctx.database.upsert('players', () => [{ qid: getQQid(session), techs: techs_in }])
+        await session.onebot.sendGroupMsg(session.guildId, `已录入${await getTech(ctx, getQQid(session))}`)
+      }
+      else {
+        await session.sendQueued('请录入正确科技格式')
+      }
+    })
+  ctx.command('LR常驻集团 <arg> <arg2>', 'LR常驻集团 <getQQid(session)/at> 巨蛇座星雲')
+    .action(async ({ session }, arg, arg2) => {
+      let tmp: number = validateQQid(arg)
+      if (tmp == null) return
+      if (arg2 == undefined) return
+      else {
+        let playerGroup = arg2.trim()
+        console.log(`${tmp}:: ${playerGroup}`)
+        if (playerGroup != '') {
+          await ctx.database.upsert('players', () => [{ qid: tmp, group: playerGroup }])
+          await session.onebot.sendGroupMsg(session.guildId, `已录入常驻集团 ${await getGroup(ctx, tmp)}`)
         }
-        else await session.onebot.sendGroupMsg(session.guildId, await showAllLines(ctx, session))
+      }
+    })
+
+  //授权车牌 SQ <getQQid(session)/at> <licence> 管理指令
+  ctx.command('SQ <arg> <arg2>', '授权车牌 SQ 114514 D9', { authority: 2 })
+    .action(async ({ session }, arg, arg2) => {
+      //此处应该授权车牌
+      let tmp: number = validateQQid(arg)
+      if (tmp == null) return
+      let tmp2: number = +(arg2.substring(1).trim())
+      if (!isValidDrsNum(tmp2)) {
+        await session.onebot.sendGroupMsg(session.guildId, '请输入正确车牌数字<7-12>')
+        return
+      }
+      console.log(tmp)
+      console.log(tmp2)
+      await ctx.database.upsert('players', () => [{ qid: tmp, licence: tmp2 }])
+      await session.onebot.sendGroupMsg(session.guildId, `已授予${atViaId(tmp)} D${tmp2}车牌`)
+    })
+
+  //启动红活 KH 管理指令
+  ctx.command('KH', '', { authority: 2 })
+    .action(async ({ session }) => {
+      // 初始化表elines
+      ctx.model.extend('elines', {
+        qid: {
+          type: 'integer',
+          length: 18,
+          initial: 0,
+          nullable: false,
+        },
+        runScore: {
+          type: 'integer',
+          length: 8,
+          initial: 0,
+          nullable: false,
+        },
+        lineId: {
+          type: 'integer',
+          initial: 0,
+          nullable: false,
+        },
+      }, {
+        primary: 'lineId',
+        autoInc: true,
       })
 
-    //查询个人信息 CX[getQQid(session)]
-    ctx.command('CX [arg]')
-      .action(async ({session}, arg) => {
-        let tmp: number
-        if (arg == undefined) tmp = getQQid(session)
-        else tmp = await validateQQid(arg)
-
-        console.log(`${getQQid(session)}: 试图查询${tmp}信息`)
-        if (tmp != null) {
-          await sleep(Math.random() * 1000)
-          await session.onebot.sendGroupMsg(session.guildId, await formatted_playerdata(ctx, session, tmp))
-        }
+      // 初始化表erank
+      ctx.model.extend('erank', {
+        qid: {
+          type: 'integer',
+          length: 18,
+          initial: 0,
+          nullable: false,
+        },
+        totalScore: {
+          type: 'integer',
+          length: 8,
+          initial: 0,
+          nullable: false,
+        },
+        totalRuns: {
+          type: 'integer',
+          initial: 0,
+          nullable: false,
+        },
+      }, {
+        primary: 'qid',
+        autoInc: false,
       })
+      await session.onebot.sendGroupMsg(session.guildId, '红星活动已开启\n输入HS7-12开始红活')
+      rs_event_status = true
+    })
 
-    //更新信息 LR[科技/集团]
-    ctx.command('LR <arg>', 'LR 创0富0延0强0')
-      .action(async ({session}, arg) => {
-        if (arg == undefined) return
-        let techs_in: number[] = await validateTechs(arg)
-        if (techs_in != null) {
-          await ctx.database.upsert('players', () => [{ qid: getQQid(session), techs: techs_in }])
-          await session.onebot.sendGroupMsg(session.guildId, `已录入${await getTech(ctx, getQQid(session))}`)
-        }
-        else {
-          await session.sendQueued('请录入正确科技格式')
-        }
-      })
-    ctx.command('LR常驻集团 <arg> <arg2>', 'LR常驻集团 <getQQid(session)/at> 巨蛇座星雲')
-      .action(async ({session}, arg, arg2) => {
-        let tmp: number = await validateQQid(arg)
-        if (tmp == null) return
-        if (arg2 == undefined) return
-        else {
-          let playerGroup = arg2.trim()
-          console.log(`${tmp}:: ${playerGroup}`)
-          if (playerGroup != '') {
-            await ctx.database.upsert('players', () => [{ qid: tmp, group: playerGroup }])
-            await session.onebot.sendGroupMsg(session.guildId, `已录入常驻集团 ${await getGroup(ctx, tmp)}`)
-          }
-        }
-      })
+  ctx.command('GH', '', { authority: 2 })
+    .action(async ({ session }) => {
+      await session.onebot.sendGroupMsg(session.guildId, '红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活')
+      rs_event_status = false
+    })
 
-    //授权车牌 SQ <getQQid(session)/at> <licence> 管理指令
-    ctx.command('SQ <arg> <arg2>', '授权车牌 SQ 114514 D9', { authority: 2 })
-      .action(async ({session}, arg, arg2) => {
-        //此处应该授权车牌
-        let tmp: number = await validateQQid(arg)
-        if (tmp == null) return
-        let tmp2: number = +(arg2.substring(1).trim())
-        if (!isValidDrsNum(tmp2)) {
-          await session.onebot.sendGroupMsg(session.guildId, '请输入正确车牌数字<7-12>')
-          return
-        }
-        console.log(tmp)
-        console.log(tmp2)
-        await ctx.database.upsert('players', () => [{ qid: tmp, licence: tmp2 }])
-        await session.onebot.sendGroupMsg(session.guildId, `已授予${atViaId(tmp)} D${tmp2}车牌`)
-      })
+  ctx.command('PH')
+    .action(async ({ session }) => {
+      let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore).execute())
+      if (einfos[0] == undefined) {
+        session.sendQueued('未检索到红活排行信息')
+        return
+      }
+      let tmp = '', index = 0
+      for (const einfo of einfos) {
+        tmp += ++index
+        tmp += `${++index}. ${await formatted_RsEvent(ctx, session, einfo.qid)}`
+      }
+    })
 
-    //启动红活 KH 管理指令
-    ctx.command('KH', '', { authority: 2 })
-      .action(async ({session}) => {
-        await session.onebot.sendGroupMsg(session.guildId, '红星活动已开启\n输入HS7-12开始红活')
-        rs_event_status = true
-      })
+  ctx.command('LRHH <arg> <arg2>')
+    .action(async ({ session }, arg, arg2) => {
+      if (!rs_event_status) {
+        session.sendQueued('红活已关闭,禁止录入')
+        return
+      }
+      if (isNaN(+arg) || isNaN(+arg2)) {
+        session.sendQueued('录入失败, 请检查指令')
+        return
+      }
+      let einfo = await updateEventScore(ctx, session, +arg, +arg2)
+      if (einfo != null) {
+        session.onebot.sendGroupMsg(session.guildId, `${atViaId(getQQid(session))} 录入红活成功\n————————————\n序号: ${+arg}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
+      }
+    })
 
-    ctx.command('GH', '', { authority: 2 })
-      .action(async ({session}) => {
-        await session.onebot.sendGroupMsg(session.guildId, '红星活动已关闭\n输入PH查看排行')
-        rs_event_status = false
-      })
+  ctx.command('CXHH [arg]')
+    .action(async ({ session }, arg) => {
+      let tmp: number
+      if (arg == undefined) tmp = getQQid(session)
+      else tmp = validateQQid(arg)
 
-    ctx.command('LRHH <arg> <arg2>')
-      .action(async ({session}) => {
+      let einfo = await getEventInfo(ctx, session, tmp)
+      session.onebot.sendGroupMsg(session.guildId, `${atViaId(tmp)} 红活状态如下:\n————————————\n次数: ${einfo[0]}\n总分: ${einfo[1]}${rs_event_status ? '' : '\n————————————\n显示的是上次红活数据'}`)
+    })
 
-      })
+  ctx.command('LH <arg0> <arg> <arg2>', '管理覆盖录入红活', { authority: 2 })
+    .action(async ({ session }, arg0, arg, arg2) => {
+      let playerId = validateQQid(arg0)
+      if (playerId == null) return
+      let einfo = await updateEventScore(ctx, session, +arg, +arg2, playerId)
+      if (einfo != null) {
+        session.onebot.sendGroupMsg(session.guildId, `${atViaId(playerId)} 录入红活成功\n————————————\n序号: ${+arg}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
+      }
+    })
+
+  ctx.command('CZHH', '重置红活', { authority: 2 })
+    .action(({ session }) => {
+      session.sendQueued(`红活数据已${rs_event_status ? '关闭并' : ''}重置`)
+      rs_event_status = false
+      resetATable(ctx, 'elines')
+      resetATable(ctx, 'erank')
+    })
 
   //权限管理
   ctx.permissions.provide('authority:2', async (name, session) => {
@@ -385,7 +516,7 @@ export function apply(ctx: Context) {
     //初始化会话监听
     ctx.database.upsert('players', () => [{ qid: getQQid(session) }])
 
-    if (session.content.startsWith('SQ<at qq')) {
+    if (session.content.startsWith('SQ\<at qq')) {
       let tmp = session.content.match(/^SQ<at\s+[^>]*id="(\d+)"[^>]*>/)
       let tmp2 = session.content.match(/D\d+/)
       if (tmp != null && tmp2 != null && isValidDrsNum(+tmp2[1]))
@@ -398,12 +529,12 @@ export function apply(ctx: Context) {
     isToSaohua = (Math.random() >= 0.95)
     if (isToSaohua) saohuaTalk(session)
 
-    
+
   })
 }
 
 async function join_drs(ctx: Context, session: Session, joinType: string): Promise<void> {
-  let qqid = session.onebot.user_id
+  let qqid = getQQid(session)
   console.log(`\n${session.onebot.user_id}: 尝试加入${joinType}队伍`)
   //检查车牌
   let lineLevel = (+joinType.substring(1))
@@ -419,7 +550,7 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
     let dinfo = await findIdFromDrs(ctx, joinType)
     let lineNum = dinfo.length
     let lineMaximum = joinType.indexOf('K') != -1 ? 2 : 3
-    var drs_message = `${await getNameFromQid(ctx, session, qqid)} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
+    var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
 
     //发车
     if (lineNum >= lineMaximum) {
@@ -454,22 +585,23 @@ async function quit_drs(ctx: Context, session: Session): Promise<void> {
 }
 
 async function join_rs_event(ctx: Context, session: Session, joinType: string): Promise<void> {
-  console.log(`\n${getQQid(session)}: 尝试加入${joinType}队伍`)
+  let qqid = getQQid(session)
+  console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
   //检查车牌
-  let lineLevel = (+joinType.substring(1))
+  let lineLevel = (+joinType.substring(2))
   let driverLicence = await getLicence(ctx, getQQid(session))
   if (driverLicence < lineLevel) {
     await session.onebot.sendGroupMsg(session.guildId, `你未获得${joinType}车牌`)
     return
   }
   //开始红活单刷
-  let foundType = await findDrsFromId(ctx, session, getQQid(session))
+  let foundType = await findDrsFromId(ctx, session, qqid)
   if (foundType == 'K0') {
-    await ctx.database.create('elines', { qid: getQQid(session) })
-    let dinfo = await ctx.database.get('elines', { qid: getQQid(session) }, ['lineId', 'runScore'])
+    await ctx.database.create('elines', { qid: qqid })
+    let dinfo = await ctx.database.get('elines', { qid: qqid }, ['lineId', 'runScore'])
     let lineNum = dinfo.length
     let eventScore = 0
-    var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n红活运行次数: ${lineNum}\n红活总分: ${eventScore}\n——————————————\nLRHH ${dinfo[dinfo.length - 1].lineId} 本回得分`
+    var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n红活运行次数: ${lineNum}\n红活总分: ${eventScore}\n——————————————\nLRHH ${dinfo[dinfo.length - 1].lineId + 1000} 得分`
     await session.onebot.sendGroupMsg(session.guildId, drs_message)
     return
   }
@@ -477,6 +609,25 @@ async function join_rs_event(ctx: Context, session: Session, joinType: string): 
     await quit_drs(ctx, session)
     await join_rs_event(ctx, session, joinType)
   }
+}
+
+async function updateEventScore(ctx: Context, session: Session, lineId_in: number, score: number, playerId?: number): Promise<number[]> {
+  console.log(playerId)
+  let qqid = playerId == undefined ? getQQid(session) : playerId, lineId = lineId_in - 1000
+  let einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId })
+  if (einfo[0] == undefined && playerId == undefined) {
+    session.sendQueued('你不能录入别人的队列')
+    return null
+  }
+  if (einfo[0].runScore != 0 && playerId == undefined) {
+    session.sendQueued(`队列${lineId}不可重复录入`)
+    return null
+  }
+  await ctx.database.upsert('erank', (row) => [{ qid: qqid, totalRuns: $.add(row.totalRuns, playerId == undefined ? 1 : 0), totalScore: $.add(row.totalScore, score) }])
+  let scoreBefore = einfo[0].runScore
+  await ctx.database.upsert('elines', (row) => [{ qid: qqid, lineId: lineId, runScore: $.add(row.runScore, score) }])
+  let runAfter = (await ctx.database.get('erank', { qid: qqid }))[0].totalRuns
+  return [runAfter, scoreBefore + score]
 }
 
 async function findIdFromDrs(ctx: Context, checkType: string): Promise<number[]> {
@@ -529,18 +680,23 @@ async function formatted_DrsN(ctx: Context, session: Session, targetType: string
   return drs_message
 }
 
+async function formatted_RsEvent(ctx: Context, session: Session, playerId: number) {
+  let einfo = await getEventInfo(ctx, session, playerId)
+  return `${getNameFromQid(ctx, session, playerId)}:\n 次数: ${einfo[0]}\n 总分: ${einfo[1]}`
+}
+
 async function showAllLines(ctx: Context, session: Session): Promise<string> {
   let linesMsg = '', lineMsg: string, tmp: string
   for (var i = 7; i <= 12; i++) {
     lineMsg = ''
     tmp = await formatted_DrsN(ctx, session, `D${i}`)
-    if (tmp.indexOf('队列为空') == -1) lineMsg += `D${i}队列—————\n${tmp}`
+    if (tmp.indexOf('队列为空') == -1) lineMsg += `D${i}队列—————\n${tmp}${await drs_timer(ctx, `D${i}`)}\n`
     tmp = await formatted_DrsN(ctx, session, `K${i}`)
-    if (tmp.indexOf('队列为空') == -1) lineMsg += `K${i}队列—————\n${tmp}`
+    if (tmp.indexOf('队列为空') == -1) lineMsg += `K${i}队列—————\n${tmp}${await drs_timer(ctx, `K${i}`)}\n`
     linesMsg += lineMsg
   }
   if (linesMsg == '') return '所有队列为空'
-  else linesMsg += '\n其余队列为空'
+  else linesMsg += '————————————\n其余队列为空'
   return linesMsg
 }
 
@@ -565,6 +721,12 @@ async function getGroup(ctx: Context, playerId: number): Promise<string> {
   return (await ctx.database.get('players', { qid: playerId }, ['group']))[0].group
 }
 
+async function getEventInfo(ctx: Context, session: Session, playerId) {
+  let einfo = (await ctx.database.get('erank', { qid: playerId }))[0]
+  if (einfo == undefined) return [0, 0]
+  return [einfo.totalRuns, einfo.totalScore]
+}
+
 async function getNameFromQid(ctx: Context, session: Session, playerId: number): Promise<string> {
   if (!session.onebot) {
     // For test cases
@@ -575,7 +737,10 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
     }
     return defaultName
   }
-  return (await session.onebot.getGroupMemberInfo(session.guildId, playerId)).nickname
+  let tmp
+  try { tmp = (await session.onebot.getGroupMemberInfo(session.guildId, playerId)).card }
+  catch { tmp = playerId }
+  return tmp
 }
 
 async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
@@ -602,17 +767,17 @@ function getQQid(session: Session): number {
   return +session.userId
 }
 
-async function validateQQid(arg: string): Promise<number> {
-  let tmp = await arg.match(/<at\s+[^>]*id="(\d+)"/), tmp2: number = null
+function validateQQid(arg: string): number {
+  let tmp = arg.match(/<at\s+[^>]*id="(\d+)"/), tmp2: number = null
   if (tmp && tmp[1] != undefined) tmp2 = +tmp[1]
   else if (!isNaN(+arg)) tmp2 = +arg
   return tmp2
 }
 
-async function validateTechs(arg: string): Promise<number[]> {
+function validateTechs(arg: string): number[] {
   var result: number[] = []
   for (const keyword of ['创', '富', '延', '强']) {
-    const match = await arg.match(`${keyword}(\\d+)`)
+    const match = arg.match(`${keyword}(\\d+)`)
     if (match && match[1] != undefined && isValidTechNum(+match[1])) {
       result.push(+match[1]);
     } else {
