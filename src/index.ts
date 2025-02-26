@@ -1,7 +1,5 @@
 import { Context, h, Schema, Session, sleep, Tables, $ } from 'koishi'
 import { CQCode } from 'koishi-plugin-adapter-onebot'
-import { config } from 'process'
-
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
@@ -9,16 +7,17 @@ export const inject = ['database']
 export interface Config {
   innerGroupId: number
   rsEventGroupName?: string
+  drsWaitTime?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
   innerGroupId: Schema.number().required().description('用于聚合巨蛇座红活信息的临时群, 便于合并转发'),
-  rsEventGroupName: Schema.string().description('红活榜单使用的集团名').default('巨蛇座星雲')
+  rsEventGroupName: Schema.string().description('红活榜单使用的集团名').default('巨蛇座星雲'),
+  drsWaitTime: Schema.number().description('每个玩家在超时前等待的时间 ms').default(18e5)
 })
 
 //初始化各种变量
-var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
-var rs_event_status: boolean, isToSaohua = false
+var rs_event_status: boolean
 
 declare module 'koishi' {
   interface Tables {
@@ -56,7 +55,7 @@ export interface RsEventRanking {
 
 export function apply(ctx: Context, config: Config) {
 
-  initPlayerTables(ctx)
+  initPlayerTables(ctx, config)
   initRsEventTables(ctx)
 
   //重置 CXHX 管理指令
@@ -65,7 +64,7 @@ export function apply(ctx: Context, config: Config) {
       // 重置players及dlines
       resetATable(ctx, 'players')
       resetATable(ctx, 'dlines')
-      initPlayerTables(ctx)
+      initPlayerTables(ctx, config)
     })
 
   //调试 ts 群主及代理首席指令
@@ -238,7 +237,7 @@ export function apply(ctx: Context, config: Config) {
         let index2 = Math.floor(index / 15)
         tmp[index2] += `\n${++index}. ${await formatted_RsEvent(ctx, session, einfo.qid)}`
       }
-      let tmp2:CQCode[] = []
+      let tmp2: CQCode[] = []
       for (var i of tmp) {
         // tmp2.push(`[CQ:forward,id=${(await session.onebot.sendGroupMsg(config.innerGroupId, i))}]`)
         tmp2.push(CQCode.from(`[CQ:forward,id=${(await session.onebot.sendGroupMsg(config.innerGroupId, i))}]`))
@@ -318,14 +317,14 @@ export function apply(ctx: Context, config: Config) {
     console.log(`\n${getQQid(session)}: ${session.content}`)
 
     //骚话模块
-    isToSaohua = (Math.random() >= 0.95)
+    let isToSaohua = (Math.random() >= 0.95)
     if (isToSaohua) saohuaTalk(session)
 
 
   })
 }
 
-function initPlayerTables(ctx: Context) {
+function initPlayerTables(ctx: Context, config: Config) {
   // 初始化表players
   ctx.model.extend('players', {
     qid: {
@@ -377,7 +376,7 @@ function initPlayerTables(ctx: Context) {
     waitDue: {
       type: 'integer',
       length: 32,
-      initial: Date.now() + defaultWaitDueTime,
+      initial: Date.now() + config.drsWaitTime,
       nullable: false,
     },
   }, {
@@ -633,18 +632,9 @@ async function getEventInfo(ctx: Context, session: Session, playerId) {
 }
 
 async function getNameFromQid(ctx: Context, session: Session, playerId: number): Promise<string> {
-  if (!session.onebot) {
-    // For test cases
-    switch (playerId) {
-      case 1: return 'Alice'
-      case 2: return 'Bob'
-      case 3: return 'Carol'
-    }
-    return defaultName
-  }
-  let tmp
+  let tmp: string
   try { tmp = (await session.onebot.getGroupMemberInfo(session.guildId, playerId)).card }
-  catch { tmp = playerId }
+  catch { tmp = '' + playerId }
   return tmp
 }
 
