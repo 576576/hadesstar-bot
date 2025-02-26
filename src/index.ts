@@ -1,13 +1,20 @@
 import { Context, h, Schema, Session, sleep, Tables, $ } from 'koishi'
 import { CQCode } from 'koishi-plugin-adapter-onebot'
+import { config } from 'process'
 
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
 
-export interface Config { }
+export interface Config {
+  innerGroupId: number
+  rsEventGroupName?: string
+}
 
-export const Config: Schema<Config> = Schema.object({})
+export const Config: Schema<Config> = Schema.object({
+  innerGroupId: Schema.number().required().description('用于聚合巨蛇座红活信息的临时群, 便于合并转发'),
+  rsEventGroupName: Schema.string().description('红活榜单使用的集团名').default('巨蛇座星雲')
+})
 
 //初始化各种变量
 var defaultQQid = 0, defaultName = '巨蛇座星雲', defaultWaitDueTime = 20 * 6e4
@@ -47,204 +54,18 @@ export interface RsEventRanking {
   totalRuns: number
 }
 
-export function apply(ctx: Context) {
+export function apply(ctx: Context, config: Config) {
 
-  // 初始化表players
-  ctx.model.extend('players', {
-    qid: {
-      type: 'integer',
-      length: 18,
-      initial: 0,
-      nullable: false,
-    },
-    licence: {
-      type: 'integer',
-      length: 2,
-      initial: 6,
-      nullable: false,
-    },
-    playRoutes: {
-      type: 'array',
-      initial: [0, 0, 0, 0, 0, 0],
-      nullable: false,
-    },
-    techs: {
-      type: 'array',
-      initial: [0, 0, 0, 0],
-      nullable: false,
-    },
-    group: {
-      type: 'string',
-      initial: '无集团',
-      nullable: false,
-    },
-  }, {
-    primary: 'qid',
-    autoInc: false,
-  })
+  initPlayerTables(ctx)
+  initRsEventTables(ctx)
 
-  // 初始化表dlines
-  ctx.model.extend('dlines', {
-    qid: {
-      type: 'integer',
-      length: 18,
-      initial: 0,
-      nullable: false,
-    },
-    lineType: {
-      type: 'string',
-      length: 5,
-      initial: 'K6',
-      nullable: false,
-    },
-    waitDue: {
-      type: 'integer',
-      length: 32,
-      initial: Date.now() + defaultWaitDueTime,
-      nullable: false,
-    },
-  }, {
-    primary: 'qid',
-    autoInc: false,
-  })
-
-  // 初始化表elines
-  ctx.model.extend('elines', {
-    qid: {
-      type: 'integer',
-      length: 18,
-      initial: 0,
-      nullable: false,
-    },
-    runScore: {
-      type: 'integer',
-      length: 8,
-      initial: 0,
-      nullable: false,
-    },
-    lineId: {
-      type: 'integer',
-      initial: 0,
-      nullable: false,
-    },
-  }, {
-    primary: 'lineId',
-    autoInc: true,
-  })
-
-  // 初始化表erank
-  ctx.model.extend('erank', {
-    qid: {
-      type: 'integer',
-      length: 18,
-      initial: 0,
-      nullable: false,
-    },
-    totalScore: {
-      type: 'integer',
-      length: 8,
-      initial: 0,
-      nullable: false,
-    },
-    totalRuns: {
-      type: 'integer',
-      initial: 0,
-      nullable: false,
-    },
-  }, {
-    primary: 'qid',
-    autoInc: false,
-  })
-
-  //重置 cz 管理指令
-  ctx.command('cz', '重置数据表', { authority: 2 })
+  //重置 CXHX 管理指令
+  ctx.command('CZHX', '重置所有玩家数据', { authority: 2 })
     .action(async (_) => {
       // 重置players及dlines
-      ctx.database.drop('players')
-      ctx.model.extend('players', {
-        qid: {
-          type: 'integer',
-          length: 18,
-          initial: 0,
-          nullable: false,
-        },
-        licence: {
-          type: 'integer',
-          length: 2,
-          initial: 6,
-          nullable: false,
-        },
-        playRoutes: {
-          type: 'array',
-          initial: [0, 0, 0, 0, 0, 0],
-          nullable: false,
-        },
-        techs: {
-          type: 'array',
-          initial: [0, 0, 0, 0],
-          nullable: false,
-        },
-        group: {
-          type: 'string',
-          initial: '无集团',
-          nullable: false,
-        },
-      }, {
-        primary: 'qid',
-        autoInc: false,
-      })
-      ctx.database.drop('dlines')
-      ctx.model.extend('dlines', {
-        qid: {
-          type: 'integer',
-          length: 18,
-          initial: 0,
-          nullable: false,
-        },
-        lineType: {
-          type: 'string',
-          length: 5,
-          initial: 'K6',
-          nullable: false,
-        },
-        waitDue: {
-          type: 'integer',
-          length: 32,
-          initial: Date.now() + defaultWaitDueTime,
-          nullable: false,
-        },
-      }, {
-        primary: 'qid',
-        autoInc: false,
-      })
-      ctx.database.drop('elines')
-      ctx.model.extend('elines', {
-        qid: {
-          type: 'integer',
-          length: 18,
-          initial: 0,
-          nullable: false,
-        },
-        runScore: {
-          type: 'integer',
-          length: 8,
-          initial: 0,
-          nullable: false,
-        },
-        lineId: {
-          type: 'integer',
-          initial: 1000,
-          nullable: false,
-        },
-      }, {
-        primary: 'lineId',
-        autoInc: true,
-      })
-    })
-
-  ctx.command('cz999999999', 'drop所有表', { authority: 2 })
-    .action((_) => {
-      ctx.database.dropAll()
+      resetATable(ctx, 'players')
+      resetATable(ctx, 'dlines')
+      initPlayerTables(ctx)
     })
 
   //调试 ts 群主及代理首席指令
@@ -265,6 +86,13 @@ export function apply(ctx: Context) {
       await sleep(Math.random() * 1000)
       await session.onebot.sendGroupMsg(session.guildId, 'ok')
       console.log(await showAllLines(ctx, session))
+    })
+
+  //引导上牌
+  ctx.command('D6')
+    .alias('K6').alias('HS6')
+    .action(async ({ session }, arg) => {
+      session.onebot.sendGroupMsg(session.guildId, `${atViaId(getQQid(session))} 没有D7以上车牌请联系管理授权[CQ:face,id=178]💦`)
     })
 
   //加入三人组队 D<7-12>
@@ -385,53 +213,7 @@ export function apply(ctx: Context) {
   //启动红活 KH 管理指令
   ctx.command('KH', '', { authority: 2 })
     .action(async ({ session }) => {
-      // 初始化表elines
-      ctx.model.extend('elines', {
-        qid: {
-          type: 'integer',
-          length: 18,
-          initial: 0,
-          nullable: false,
-        },
-        runScore: {
-          type: 'integer',
-          length: 8,
-          initial: 0,
-          nullable: false,
-        },
-        lineId: {
-          type: 'integer',
-          initial: 0,
-          nullable: false,
-        },
-      }, {
-        primary: 'lineId',
-        autoInc: true,
-      })
-
-      // 初始化表erank
-      ctx.model.extend('erank', {
-        qid: {
-          type: 'integer',
-          length: 18,
-          initial: 0,
-          nullable: false,
-        },
-        totalScore: {
-          type: 'integer',
-          length: 8,
-          initial: 0,
-          nullable: false,
-        },
-        totalRuns: {
-          type: 'integer',
-          initial: 0,
-          nullable: false,
-        },
-      }, {
-        primary: 'qid',
-        autoInc: false,
-      })
+      initRsEventTables(ctx)
       await session.onebot.sendGroupMsg(session.guildId, '红星活动已开启\n输入HS7-12开始红活')
       rs_event_status = true
     })
@@ -442,18 +224,26 @@ export function apply(ctx: Context) {
       rs_event_status = false
     })
 
-  ctx.command('PH')
+  //生成红活排行并合并转发 PH
+  ctx.command('PH', '查看红活排行', { authority: 2 })
     .action(async ({ session }) => {
       let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore).execute())
       if (einfos[0] == undefined) {
-        session.sendQueued('未检索到红活排行信息')
+        await session.sendQueued('未检索到红活排行信息')
         return
       }
-      let tmp = '', index = 0
+      let dateNow = new Date()
+      let tmp = [`${config.rsEventGroupName} ${dateNow.getFullYear()}.${dateNow.getMonth()}.${dateNow.getDay()}红活榜单:\n`], index = 0
       for (const einfo of einfos) {
-        tmp += ++index
-        tmp += `${++index}. ${await formatted_RsEvent(ctx, session, einfo.qid)}`
+        let index2 = Math.floor(index / 15)
+        tmp[index2] += `\n${++index}. ${await formatted_RsEvent(ctx, session, einfo.qid)}`
       }
+      let tmp2:CQCode[] = []
+      for (var i of tmp) {
+        // tmp2.push(`[CQ:forward,id=${(await session.onebot.sendGroupMsg(config.innerGroupId, i))}]`)
+        tmp2.push(CQCode.from(`[CQ:forward,id=${(await session.onebot.sendGroupMsg(config.innerGroupId, i))}]`))
+      }
+      session.onebot.sendGroupForwardMsg(session.guildId, tmp2)
     })
 
   ctx.command('LRHH <arg> <arg2>')
@@ -482,13 +272,14 @@ export function apply(ctx: Context) {
       session.onebot.sendGroupMsg(session.guildId, `${atViaId(tmp)} 红活状态如下:\n————————————\n次数: ${einfo[0]}\n总分: ${einfo[1]}${rs_event_status ? '' : '\n————————————\n显示的是上次红活数据'}`)
     })
 
-  ctx.command('LH <arg0> <arg> <arg2>', '管理覆盖录入红活', { authority: 2 })
-    .action(async ({ session }, arg0, arg, arg2) => {
+  ctx.command('LH <arg0> <arg1>', '管理覆盖录入红活', { authority: 2 })
+    .action(async ({ session }, arg0, arg1) => {
       let playerId = validateQQid(arg0)
       if (playerId == null) return
-      let einfo = await updateEventScore(ctx, session, +arg, +arg2, playerId)
+      let arg = await join_rs_event(ctx, session, 'HS6')
+      let einfo = await updateEventScore(ctx, session, arg, +arg1, playerId)
       if (einfo != null) {
-        session.onebot.sendGroupMsg(session.guildId, `${atViaId(playerId)} 录入红活成功\n————————————\n序号: ${+arg}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
+        session.onebot.sendGroupMsg(session.guildId, `${atViaId(playerId)} 录入红活成功\n————————————\n序号: ${arg}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
       }
     })
 
@@ -498,6 +289,7 @@ export function apply(ctx: Context) {
       rs_event_status = false
       resetATable(ctx, 'elines')
       resetATable(ctx, 'erank')
+      initRsEventTables(ctx)
     })
 
   //权限管理
@@ -533,6 +325,117 @@ export function apply(ctx: Context) {
   })
 }
 
+function initPlayerTables(ctx: Context) {
+  // 初始化表players
+  ctx.model.extend('players', {
+    qid: {
+      type: 'integer',
+      length: 18,
+      initial: 0,
+      nullable: false,
+    },
+    licence: {
+      type: 'integer',
+      length: 2,
+      initial: 6,
+      nullable: false,
+    },
+    playRoutes: {
+      type: 'array',
+      initial: [0, 0, 0, 0, 0, 0],
+      nullable: false,
+    },
+    techs: {
+      type: 'array',
+      initial: [0, 0, 0, 0],
+      nullable: false,
+    },
+    group: {
+      type: 'string',
+      initial: '无集团',
+      nullable: false,
+    },
+  }, {
+    primary: 'qid',
+    autoInc: false,
+  })
+
+  // 初始化表dlines
+  ctx.model.extend('dlines', {
+    qid: {
+      type: 'integer',
+      length: 18,
+      initial: 0,
+      nullable: false,
+    },
+    lineType: {
+      type: 'string',
+      length: 5,
+      initial: 'K6',
+      nullable: false,
+    },
+    waitDue: {
+      type: 'integer',
+      length: 32,
+      initial: Date.now() + defaultWaitDueTime,
+      nullable: false,
+    },
+  }, {
+    primary: 'qid',
+    autoInc: false,
+  })
+}
+
+function initRsEventTables(ctx: Context) {
+  //初始化表elines
+  ctx.model.extend('elines', {
+    qid: {
+      type: 'integer',
+      length: 18,
+      initial: 0,
+      nullable: false,
+    },
+    runScore: {
+      type: 'integer',
+      length: 8,
+      initial: 0,
+      nullable: false,
+    },
+    lineId: {
+      type: 'integer',
+      initial: 0,
+      nullable: false,
+    },
+  }, {
+    primary: 'lineId',
+    autoInc: true,
+  })
+
+  // 初始化表erank
+  ctx.model.extend('erank', {
+    qid: {
+      type: 'integer',
+      length: 18,
+      initial: 0,
+      nullable: false,
+    },
+    totalScore: {
+      type: 'integer',
+      length: 8,
+      initial: 0,
+      nullable: false,
+    },
+    totalRuns: {
+      type: 'integer',
+      initial: 0,
+      nullable: false,
+    },
+  }, {
+    primary: 'qid',
+    autoInc: false,
+  })
+}
+
 async function join_drs(ctx: Context, session: Session, joinType: string): Promise<void> {
   let qqid = getQQid(session)
   console.log(`\n${session.onebot.user_id}: 尝试加入${joinType}队伍`)
@@ -550,16 +453,16 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
     let dinfo = await findIdFromDrs(ctx, joinType)
     let lineNum = dinfo.length
     let lineMaximum = joinType.indexOf('K') != -1 ? 2 : 3
-    var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n发车人数 [${lineNum}/${lineMaximum}]\n——————————————\n${await formatted_DrsN(ctx, session, joinType)}——————————————\n`
+    var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n————————————\n发车人数 [${lineNum}/${lineMaximum}]\n————————————\n${await formatted_DrsN(ctx, session, joinType)}————————————\n`
 
     //发车
     if (lineNum >= lineMaximum) {
       drs_message += `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${joinType.substring(1)}  ]`
-      //发车后清空队伍
+      //发车后清空队伍并更新场次
       for (const driverId of dinfo) {
         let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
         tmp[lineLevel - 7] += 1
-        await ctx.database.upsert('players', () => [{ qid: qqid, playRoutes: tmp }])
+        await ctx.database.upsert('players', () => [{ qid: driverId, playRoutes: tmp }])
       }
       await ctx.database.remove('dlines', { lineType: joinType })
     }
@@ -568,7 +471,7 @@ async function join_drs(ctx: Context, session: Session, joinType: string): Promi
     return
   }
   else if (foundType == joinType)
-    await session.onebot.sendGroupMsg(session.guildId, `你已在${joinType}队伍中`)
+    await session.onebot.sendGroupMsg(session.guildId, `${atViaId(qqid)} 你已在${joinType}队伍中\n————————————\n${await formatted_DrsN(ctx, session, joinType)}————————————\n${await drs_timer(ctx, joinType)}`)
   else {
     await quit_drs(ctx, session)
     await join_drs(ctx, session, joinType)
@@ -584,7 +487,7 @@ async function quit_drs(ctx: Context, session: Session): Promise<void> {
   else await session.onebot.sendGroupMsg(session.guildId, "你未在队伍中")
 }
 
-async function join_rs_event(ctx: Context, session: Session, joinType: string): Promise<void> {
+async function join_rs_event(ctx: Context, session: Session, joinType: string): Promise<number> {
   let qqid = getQQid(session)
   console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
   //检查车牌
@@ -592,7 +495,7 @@ async function join_rs_event(ctx: Context, session: Session, joinType: string): 
   let driverLicence = await getLicence(ctx, getQQid(session))
   if (driverLicence < lineLevel) {
     await session.onebot.sendGroupMsg(session.guildId, `你未获得${joinType}车牌`)
-    return
+    return null
   }
   //开始红活单刷
   let foundType = await findDrsFromId(ctx, session, qqid)
@@ -603,7 +506,7 @@ async function join_rs_event(ctx: Context, session: Session, joinType: string): 
     let eventScore = 0
     var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n红活运行次数: ${lineNum}\n红活总分: ${eventScore}\n——————————————\nLRHH ${dinfo[dinfo.length - 1].lineId + 1000} 得分`
     await session.onebot.sendGroupMsg(session.guildId, drs_message)
-    return
+    return dinfo[dinfo.length - 1].lineId
   }
   else {
     await quit_drs(ctx, session)
@@ -666,7 +569,7 @@ async function findDrsFromId(ctx: Context, session: Session, playerId: number): 
 
 
 async function formatted_DrsN(ctx: Context, session: Session, targetType: string): Promise<string> {
-  let targetNum = +targetType.substring(1)
+  let targetNum = +targetType.substring(1) - 7
   let dinfo = await findIdFromDrs(ctx, targetType)
   if (dinfo.length == 0) return `${targetType}队列为空`
   let tmp = []
@@ -675,24 +578,25 @@ async function formatted_DrsN(ctx: Context, session: Session, targetType: string
     let playerName = await getNameFromQid(ctx, session, playerId)
     let playerRoute = await getPlayRoutes(ctx, playerId)
     let playerTech = await getTech(ctx, playerId)
-    drs_message += `╔${atViaId(playerId)} ${playerRoute[targetNum - 7]}\n╚［${playerTech}]\n`
+    let playerGroup = await getGroup(ctx, playerId)
+    drs_message += `╔${atViaId(playerId)}\n╠ [${playerGroup}] [${playerRoute[targetNum]}场]\n╚ [${playerTech}]\n`
   }
   return drs_message
 }
 
 async function formatted_RsEvent(ctx: Context, session: Session, playerId: number) {
   let einfo = await getEventInfo(ctx, session, playerId)
-  return `${getNameFromQid(ctx, session, playerId)}:\n 次数: ${einfo[0]}\n 总分: ${einfo[1]}`
+  return `${await getNameFromQid(ctx, session, playerId)}:\n 次数: ${einfo[0]}\n 总分: ${einfo[1]}`
 }
 
 async function showAllLines(ctx: Context, session: Session): Promise<string> {
-  let linesMsg = '', lineMsg: string, tmp: string
+  let linesMsg = '', lineMsg: string, tmp: string, index
   for (var i = 7; i <= 12; i++) {
     lineMsg = ''
     tmp = await formatted_DrsN(ctx, session, `D${i}`)
-    if (tmp.indexOf('队列为空') == -1) lineMsg += `D${i}队列—————\n${tmp}${await drs_timer(ctx, `D${i}`)}\n`
+    if (tmp.indexOf('队列为空') != -1) lineMsg += `D${i}队列—————\n${tmp}${await drs_timer(ctx, `D${i}`)}\n`
     tmp = await formatted_DrsN(ctx, session, `K${i}`)
-    if (tmp.indexOf('队列为空') == -1) lineMsg += `K${i}队列—————\n${tmp}${await drs_timer(ctx, `K${i}`)}\n`
+    if (tmp.indexOf('队列为空') != -1) lineMsg += `K${i}队列—————\n${tmp}${await drs_timer(ctx, `K${i}`)}\n`
     linesMsg += lineMsg
   }
   if (linesMsg == '') return '所有队列为空'
@@ -704,16 +608,17 @@ async function showALine(ctx: Context, session: Session, lineNum: number): Promi
   return `D${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `D${lineNum}`)}K${lineNum}队列—————\n${await formatted_DrsN(ctx, session, `K${lineNum}`)}`
 }
 
-async function getLicence(ctx: Context, playerId: number) {
+async function getLicence(ctx: Context, playerId: number): Promise<number> {
   return (await ctx.database.get('players', { qid: playerId }, ['licence']))[0].licence
 }
 
-async function getPlayRoutes(ctx: Context, playerId: number) {
+async function getPlayRoutes(ctx: Context, playerId: number): Promise<number[]> {
   return (await ctx.database.get('players', { qid: playerId }, ['playRoutes']))[0].playRoutes
 }
 
-async function getTech(ctx: Context, playerId: number) {
+async function getTech(ctx: Context, playerId: number): Promise<string> {
   let techs_get = (await ctx.database.get('players', { qid: playerId }, ['techs']))[0].techs
+  if (techs_get[0] == 0 && techs_get[1] == 0 && techs_get[2] == 0 && techs_get[3] == 0) return '科技未录入'
   return `创${techs_get[0]}富${techs_get[1]}延${techs_get[2]}强${techs_get[3]}`
 }
 
@@ -744,14 +649,14 @@ async function getNameFromQid(ctx: Context, session: Session, playerId: number):
 }
 
 async function formatted_playerdata(ctx: Context, session: Session, playerId: number): Promise<string> {
-  return `${atViaId(playerId)}\nQQ: ${playerId}\n车牌: D${await getLicence(ctx, playerId)}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}\n集团: ${await getGroup(ctx, playerId)}`
+  return `玩家: ${await getNameFromQid(ctx, session, playerId)}\n集团: ${await getGroup(ctx, playerId)}\n车牌: D${await getLicence(ctx, playerId)}\n场数: ${await getPlayRoutes(ctx, playerId)}\n科技: ${await getTech(ctx, playerId)}`
 }
 
 async function drs_timer(ctx: Context, targetType: string): Promise<string> {
   let timerList = await findWaitFromDrs(ctx, targetType)
   let tmp = '超时计时: '
   for (const timer of timerList) {
-    tmp += `${timer} | `
+    tmp += `⏱️${timer} `
   }
   return tmp
 }
