@@ -1,4 +1,4 @@
-import { Context, h, Schema, Session, sleep, Tables, $ } from 'koishi'
+import { Context, Schema, Session, sleep, Tables, $ } from 'koishi'
 import { CQCode } from 'koishi-plugin-adapter-onebot'
 
 export const name = 'hadesstar-bot'
