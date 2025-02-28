@@ -251,7 +251,7 @@ export function apply(ctx: Context, config: Config) {
   //生成红活排行并合并转发 PH
   ctx.command('PH', '查看红活排行', { authority: 2 })
     .action(async ({ session }) => {
-      let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore).execute())
+      let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore, 'desc').execute())
       if (einfos[0] == undefined) {
         await session.sendQueued('未检索到红活排行信息')
         return
