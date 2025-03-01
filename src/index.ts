@@ -424,7 +424,7 @@ export function apply(ctx: Context, config: Config) {
       }
     })
 
-  ctx.command('LRHH <lineNum> <eventRunScore> [userId]')
+  ctx.command('LRHH <lineNum> <eventRunScore>')
     .action(async ({ session }, lineNum, eventRunScore) => {
       if (!rs_event_status) {
         session.sendQueued('红活已关闭,禁止录入')
@@ -438,7 +438,7 @@ export function apply(ctx: Context, config: Config) {
       let einfo = await updateEventScore(session, +lineNum, runScore)
       if (einfo) {
         let playerName = await getUserName(session, await getQQid(session))
-        session.send(`${playerName} 录入成功\n————————————\n╔ 车队序号 [ ${+lineNum} ]\n╠ 次数 [ ${einfo[0]} ]\n╠ 本轮分数 [ ${runScore} ]╚ 总分 [ ${einfo[1]} ]`)
+        session.send(`${playerName} 录入成功\n————————————\n╔ 车队序号: ${+lineNum}\n╠ 当前次数: ${einfo[0]}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo[1]}`)
       }
     })
 
@@ -456,17 +456,23 @@ export function apply(ctx: Context, config: Config) {
       let eventOrder = einfos.findIndex(rsRank => rsRank.qid == qqid) + 1
 
       let einfo = await getEventInfo(qqid)
-      session.send(`${((!session.onebot) ? '-\n' : '')}${await getUserName(session, qqid)} 红活状态:\n╔ 当前次数: ${einfo[0]}\n╠ 当前总分: ${einfo[1]}\n╚ 当前排行: ${eventOrder}${rs_event_status ? '' : '\n————————————\n红活未开启\n显示的是历史数据'}`)
+      session.send(`${((!session.onebot) ? '-\n' : '')}${await getUserName(session, qqid)} 红活状态:\n╔ 当前次数: ${einfo[0]}\n╠ 当前总分: ${einfo[1]}\n╚ 当前排行: ${eventOrder}${rs_event_status ? '' : '\n——————————\n历史数据(红活未开启)'}`)
     })
 
-  ctx.command('LH <arg0> <arg1>', '管理覆盖录入红活')
-    .action(async ({ session }, arg0, arg1) => {
-      let playerId = await getQQid(session, arg0)
-      if (playerId == null) return
-      let arg = await join_rs_event(session, 'HS6')
-      let einfo = await updateEventScore(session, arg, +arg1, playerId)
+  ctx.command('LH <userId> <eScore>', '管理覆盖录入红活')
+    .action(async ({ session }, userId, eScore_in) => {
+      let qqid = await getQQid(session, userId)
+      if (!qqid) return
+
+      let eScore = Number.parseInt(eScore_in)
+      if (isNaN(eScore)) {
+        session.sendQueued('录入失败, 请检查指令\nLH 玩家id 红活分数')
+        return
+      }
+      let lineId = await join_rs_event(session, 'HS6')
+      let einfo = await updateEventScore(session, lineId, eScore, qqid)
       if (einfo != null) {
-        session.send(`${await getUserName(session, playerId)} 录入红活成功\n————————————\n序号: ${arg}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
+        session.send(`-\n${await getUserName(session, qqid)} 录入红活成功\n————————————\n序号: ${lineId}\n次数: ${einfo[0]}\n总分: ${einfo[1]}`)
       }
     })
 
@@ -566,7 +572,7 @@ export function apply(ctx: Context, config: Config) {
       let eventScore = 0
       let playerGroup = await getGroup(qqid)
       if (dinfo) eventScore = +(await getEventInfo(qqid))[1]
-      var drs_message = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n————————————\n╔ [${playerGroup}]\n╠ 红活次数: ${lineNum}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n————————————\nLRHH ${lineId} <得分>`
+      var drs_message = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n————————————\n╔ [${playerGroup}]\n╠ 红活次数: ${lineNum}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n————————————\nLRHH ${lineId} 得分`
       await session.send(drs_message)
       return dinfo[dinfo.length - 1].lineId
     }
