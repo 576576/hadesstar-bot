@@ -344,7 +344,21 @@ export function apply(ctx: Context, config: Config) {
         await session.send('请录入正确科技格式\nLR 创1富2延3强4')
       }
     })
-  ctx.command('LR名字')
+  ctx.command('LR名字 <nick> [playerId]')
+    .alias('LR账号')
+    .action(async ({ session }, nick, playerId?) => {
+      let qqid = await getQQid(session, playerId)
+      if (!qqid) return
+
+      if (!nick) {
+        session.send('请录入正确名字格式\nLR名字 高声豪歌')
+        return
+      }
+      else {
+        await ctx.database.upsert('players', () => [{ qid: qqid, cachedName: nick }])
+        await session.send(`已录入名字 ${await getUserName(session, qqid)}`)
+      }
+    })
   ctx.command('LR集团 <playerGroup> [userId]', 'LR集团 巨蛇座星雲')
     .alias('LR常驻集团')
     .action(async ({ session }, playerGroup, userId) => {
