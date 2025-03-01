@@ -490,6 +490,7 @@ export function apply(ctx: Context, config: Config) {
     let foundType = await findDrsFromId(session, qqid)
     if (foundType == 'K0') {
       await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
+      let timer = await drs_timer(session, joinType)
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
       let lineMaximum = joinType.includes('K') ? 2 : 3
@@ -506,7 +507,7 @@ export function apply(ctx: Context, config: Config) {
         }
         await ctx.database.remove('dlines', { lineType: joinType })
       }
-      else drs_message += await drs_timer(session, joinType)
+      else drs_message += timer
       await session.send(drs_message)
       return
     }
@@ -592,17 +593,18 @@ export function apply(ctx: Context, config: Config) {
   async function findWaitFromDrs(session: Session, checkType: string): Promise<string[]> {
     let dinfo = await ctx.database.get('dlines', { lineType: checkType })
     if (dinfo[0] == undefined) return []
-    let foundIdList: string[] = []
+    let foundTimeList: string[] = []
     for (const element of dinfo) {
       let waitTimeLeft = element.waitDue - Date.now()
       if (waitTimeLeft <= 0) {
         await ctx.database.remove('dlines', { qid: element.qid })
         await session.send(`${await getUserName(session, element.qid)} 超时被踢出${dinfo[0].lineType}队列`)
+        continue
       }
-      let formatted_time = `${Math.floor(waitTimeLeft / 6e4)}:${('' + Math.floor((waitTimeLeft % 6e4) / 1e3)).padStart(2, '0')}`
-      foundIdList.push(formatted_time)
+      let formatted_time = `⏱️${Math.floor(waitTimeLeft / 6e4)}:${('' + Math.floor((waitTimeLeft % 6e4) / 1e3)).padStart(2, '0')} `
+      foundTimeList.push(formatted_time)
     }
-    return foundIdList
+    return foundTimeList
   }
 
   async function findDrsFromId(session: Session, playerId: string): Promise<string> {
@@ -629,7 +631,7 @@ export function apply(ctx: Context, config: Config) {
       let playerRoute = await getPlayRoutes(playerId)
       let playerTech = await getTech(playerId)
       let playerGroup = await getGroup(playerId)
-      drs_message += `╔${playerName}\n╠ 集团 [${playerGroup}] 场次 [${playerRoute[targetNum]}]\n╚ [${playerTech}]\n`
+      drs_message += `╔ ${playerName}\n╠ [${playerGroup}] ${playerRoute[targetNum]}\n╚ [${playerTech}]\n`
     }
     return drs_message
   }
@@ -638,27 +640,33 @@ export function apply(ctx: Context, config: Config) {
     let playerName = await getUserName(session, playerId)
     let playerGroup = await getGroup(playerId)
     let einfo = await getEventInfo(playerId)
-    return isDetail ? `╔${playerName}:\n╠ 集团 [${playerGroup}]╠ 场次[${einfo[0]}]\n 总分 [${einfo[1]}]` :
-      `${await getUserName(session, playerId)}:\n 集团 [${playerGroup}]\n 次数 [${einfo[0]}]\n 总分 [${einfo[1]}]`
+    return isDetail ? `╔ ${playerName}:\n╠ [${playerGroup}]╠ 场次 ${einfo[0]}\n 总分 [${einfo[1]}]` :
+      `${await getUserName(session, playerId)}:\n [${playerGroup}]\n 场次 ${einfo[0]}\n 总分 [${einfo[1]}]`
   }
 
   async function showAllLines(session: Session): Promise<string> {
-    let linesMsg = '', lineMsg: string, dinfo
+    let linesMsg = ((!session.onebot) ? '-\n' : ''), lineMsg: string, dinfo: string[]
     for (var i = 7; i <= 12; i++) {
       lineMsg = ''
       dinfo = await findIdFromDrs(`D${i}`)
-      if (dinfo.length != 0) lineMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}\n${await drs_timer(session, `D${i}`)}\n`
+      if (dinfo.length != 0) lineMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}${await drs_timer(session, `D${i}`)}\n`
       dinfo = await findIdFromDrs(`K${i}`)
-      if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}\n${await drs_timer(session, `K${i}`)}\n`
+      if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}${await drs_timer(session, `K${i}`)}\n`
       linesMsg += lineMsg
     }
     if (linesMsg == '') return '所有队列为空'
-    else linesMsg += '————————————\n其余队列为空'
+    else linesMsg += '————————\n其余队列为空'
     return linesMsg
   }
 
   async function showALine(session: Session, lineNum: number): Promise<string> {
-    return `D${lineNum}队列—————\n${await formatted_DrsN(session, `D${lineNum}`)}K${lineNum}队列—————\n${await formatted_DrsN(session, `K${lineNum}`)}`
+    let lineMsg = ((!session.onebot) ? '-\n' : ''), dinfo: string[]
+    dinfo = await findIdFromDrs(`D${lineNum}`)
+    if (dinfo.length != 0) lineMsg += `D${lineNum}队列—————\n${(await formatted_DrsN(session, `D${lineNum}`))}${await drs_timer(session, `D${lineNum}`)}\n`
+    dinfo = await findIdFromDrs(`K${lineNum}`)
+    if (dinfo.length != 0) lineMsg += `K${lineNum}队列—————\n${(await formatted_DrsN(session, `K${lineNum}`))}${await drs_timer(session, `K${lineNum}`)}\n`
+    if (!lineMsg.includes('队列')) lineMsg += `D${lineNum}/K${lineNum}队列为空`
+    return lineMsg
   }
 
   async function getLicence(playerId: string): Promise<number> {
@@ -704,10 +712,12 @@ export function apply(ctx: Context, config: Config) {
 
   async function drs_timer(session: Session, targetType: string): Promise<string> {
     let timerList = await findWaitFromDrs(session, targetType)
+    console.log(timerList)
     let tmp = '超时计时: '
     for (const timer of timerList) {
-      tmp += `⏱️${timer} `
+      tmp += timer
     }
+    if (timerList.length = 0) return ''
     return tmp
   }
 
@@ -724,7 +734,7 @@ export function apply(ctx: Context, config: Config) {
       if (session.onebot) return session.userId
       else {
         qqid = await findQQidFromOpenId(session.userId)
-        if (!qqid && noisy) session.send('玩家信息未初始化\n请使用/D6 联系管理初始化')
+        if (!qqid && noisy) session.send(`请联系管理初始化💦\n${session.userId}`)
         return qqid
       }
     }
@@ -741,14 +751,12 @@ export function apply(ctx: Context, config: Config) {
 
   async function findOpenIdFromQQid(userId: string): Promise<string> {
     let dinfo = (await ctx.database.get('players', { qid: userId }, ['openId']))[0]
-    console.log(`dinfo:\n${dinfo}`)
     if (!dinfo) return null
     return dinfo.openId
   }
 
   async function findQQidFromOpenId(openId: string): Promise<string> {
     let dinfo = (await ctx.database.get('players', { openId: openId }, ['qid']))[0]
-    console.log(`dinfo:\n${dinfo}`)
     if (!dinfo) return null
     return dinfo.qid
   }
