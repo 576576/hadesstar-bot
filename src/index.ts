@@ -242,6 +242,7 @@ export function apply(ctx: Context, config: Config) {
   //初始化 CSH <openId> <qqid> [playerName] 管理指令
   ctx.command('CSH <openId> <qid> [playerName]', '初始化玩家数据')
     .action(async ({ session }, openId, qid, playerName) => {
+      if (!playerName) playerName = qid
       console.log(`${qid}: 绑定了${openId} 昵称${playerName}`)
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId, cachedName: playerName }])
       session.send(`已对玩家进行初始化`)
