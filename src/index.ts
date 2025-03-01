@@ -210,6 +210,16 @@ export function apply(ctx: Context, config: Config) {
       initPlayerTables()
     })
 
+  ctx.command('CZ <userId>', '重置单个玩家数据')
+    .action(async ({ session }, userId) => {
+      let qqid = await getQQid(session, userId)
+      if (!qqid) return
+      await ctx.database.remove('dlines', { qid: qqid })
+      await ctx.database.remove('elines', { qid: qqid })
+      await ctx.database.remove('erank', { qid: qqid })
+      session.send('已重置一名玩家数据')
+    })
+
   //调试 ts 群主及代理首席指令
   ctx.command('ts', '调试数据表')
     .action(async ({ session }) => {
@@ -369,8 +379,10 @@ export function apply(ctx: Context, config: Config) {
     })
 
   //启动或关闭红活 KGH 管理指令
-  ctx.command('KGH', '')
-    .action(async ({ session }) => {
+  ctx.command('KGH [eState]', '')
+    .alias('KH', { args: ['true'] }).alias('GH', { args: ['false'] })
+    .action(async ({ session }, eState?) => {
+      if (eState != undefined) rs_event_status = !eState
       if (rs_event_status) await session.send('红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活')
       else {
         initRsEventTables()
