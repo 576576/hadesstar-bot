@@ -679,7 +679,7 @@ export function apply(ctx: Context, config: Config) {
       if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}${await drs_timer(session, `K${i}`)}\n`
       linesMsg += lineMsg
     }
-    if (linesMsg == '') return '所有队列为空'
+    if (linesMsg == ((!session.onebot) ? '-\n' : '')) return '所有队列为空'
     else linesMsg += '————————\n其余队列为空'
     return linesMsg
   }
