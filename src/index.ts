@@ -341,7 +341,7 @@ export function apply(ctx: Context, config: Config) {
         await session.send(`已录入${await getTech(qqid)}`)
       }
       else {
-        await session.send('请录入正确科技格式\nLR 创1富2延3强4')
+        await session.send('请录入正确科技格式\n例: LR 创1富2延3强4')
       }
     })
   ctx.command('LR名字 <nick> [playerId]')
@@ -351,7 +351,7 @@ export function apply(ctx: Context, config: Config) {
       if (!qqid) return
 
       if (!nick) {
-        session.send('请录入正确名字格式\nLR名字 高声豪歌')
+        session.send('请录入正确名字格式\n例: LR名字 高声豪歌')
         return
       }
       else {
@@ -366,7 +366,7 @@ export function apply(ctx: Context, config: Config) {
       if (!qqid) return
 
       if (!playerGroup) {
-        session.send('请录入正确集团格式\nLR集团 第〇序列')
+        session.send('请录入正确集团格式\n例: LR集团 第〇序列')
         return
       }
       else {
@@ -414,7 +414,7 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       let dateNow = new Date()
-      let tmp = [`${config.rsEventGroupName} ${dateNow.getFullYear()}.${dateNow.getMonth()}.${dateNow.getDay()}红活榜单:\n`], index = 0
+      let tmp = [`${config.rsEventGroupName} ${dateNow.getFullYear()}.${dateNow.getMonth()}.${dateNow.getDay()}红活榜`], index = 0
       for (const einfo of einfos) {
         let index2 = Math.floor(index / 15)
         tmp[index2] += `\n${++index}. ${await formatted_RsEvent(session, einfo.qid)}`
@@ -430,14 +430,15 @@ export function apply(ctx: Context, config: Config) {
         session.sendQueued('红活已关闭,禁止录入')
         return
       }
-      if (isNaN(+lineNum) || isNaN(+eventRunScore)) {
-        session.sendQueued('录入失败, 请检查指令\nLRHH <红活号码> <红活分数>')
+      let runScore = Number.parseInt(eventRunScore)
+      if (isNaN(+lineNum) || isNaN(runScore)) {
+        session.sendQueued('录入失败, 请检查指令\nLRHH 红活号码 红活分数')
         return
       }
-      let einfo = await updateEventScore(session, +lineNum, +eventRunScore)
+      let einfo = await updateEventScore(session, +lineNum, runScore)
       if (einfo) {
         let playerName = await getUserName(session, await getQQid(session))
-        session.send(`${playerName} 录入红活成功\n————————————\n序号 [ ${+lineNum} ]\n次数 [ ${einfo[0]} ]\n总分 [${einfo[1]} ]`)
+        session.send(`${playerName} 录入成功\n————————————\n╔ 车队序号 [ ${+lineNum} ]\n╠ 次数 [ ${einfo[0]} ]\n╠ 本轮分数 [ ${runScore} ]╚ 总分 [ ${einfo[1]} ]`)
       }
     })
 
@@ -447,9 +448,15 @@ export function apply(ctx: Context, config: Config) {
       let isInit = await isInitialized(session, qqid)
       if (!qqid || !isInit) return
 
+      let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore, 'desc').execute())
+      if (einfos[0] == undefined) {
+        await session.sendQueued('未检索到红活排行信息')
+        return
+      }
+      let eventOrder = einfos.findIndex(rsRank => rsRank.qid == qqid) + 1
 
       let einfo = await getEventInfo(qqid)
-      session.send(`${await getUserName(session, qqid)} 红活状态如下:\n————————————\n次数: ${einfo[0]}\n总分: ${einfo[1]}${rs_event_status ? '' : '\n————————————\n显示的是上次红活数据'}`)
+      session.send(`${((!session.onebot) ? '-\n' : '')}${await getUserName(session, qqid)} 红活状态:\n╔ 当前次数: ${einfo[0]}\n╠ 当前总分: ${einfo[1]}\n╚ 当前排行: ${eventOrder}${rs_event_status ? '' : '\n————————————\n红活未开启\n显示的是历史数据'}`)
     })
 
   ctx.command('LH <arg0> <arg1>', '管理覆盖录入红活')
@@ -487,6 +494,12 @@ export function apply(ctx: Context, config: Config) {
       await session.send(`你未获得${joinType}车牌`)
       return
     }
+    let playerGroup = await getGroup(qqid)
+    if (playerGroup == '无集团') {
+      await session.send(`请先录入集团\n例: LR集团 巨蛇座`)
+      return
+    }
+
     let foundType = await findDrsFromId(session, qqid)
     if (foundType == 'K0') {
       await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
@@ -532,7 +545,9 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function join_rs_event(session: Session, joinType: string): Promise<number> {
-    let qqid = await getQQid(session)
+    let qqid = await getQQid(session, undefined, true)
+    if (!qqid) return
+
     console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
     //检查车牌
     let lineLevel = (+joinType.substring(2))
@@ -547,8 +562,11 @@ export function apply(ctx: Context, config: Config) {
       await ctx.database.create('elines', { qid: qqid })
       let dinfo = await ctx.database.get('elines', { qid: qqid }, ['lineId', 'runScore'])
       let lineNum = dinfo.length
+      let lineId = dinfo[dinfo.length - 1].lineId + 1000
       let eventScore = 0
-      var drs_message = `${session.author.nick} 成功加入${joinType}队伍\n——————————————\n红活运行次数: ${lineNum}\n红活总分: ${eventScore}\n——————————————\nLRHH ${dinfo[dinfo.length - 1].lineId + 1000} 得分`
+      let playerGroup = await getGroup(qqid)
+      if (dinfo) eventScore = +(await getEventInfo(qqid))[1]
+      var drs_message = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n————————————\n╔ [${playerGroup}]\n╠ 红活次数: ${lineNum}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n————————————\nLRHH ${lineId} <得分>`
       await session.send(drs_message)
       return dinfo[dinfo.length - 1].lineId
     }
@@ -640,8 +658,8 @@ export function apply(ctx: Context, config: Config) {
     let playerName = await getUserName(session, playerId)
     let playerGroup = await getGroup(playerId)
     let einfo = await getEventInfo(playerId)
-    return isDetail ? `╔ ${playerName}:\n╠ [${playerGroup}]╠ 场次 ${einfo[0]}\n 总分 [${einfo[1]}]` :
-      `${await getUserName(session, playerId)}:\n [${playerGroup}]\n 场次 ${einfo[0]}\n 总分 [${einfo[1]}]`
+    return isDetail ? `╔ 名称: ${playerName}\n╠ [${playerGroup}]╠ 场次: ${einfo[0]}\n╚ 总分: ${einfo[1]}` :
+      `${await getUserName(session, playerId)}\n【总分:${einfo[1]} 场次:${einfo[0]}】`
   }
 
   async function showAllLines(session: Session): Promise<string> {
@@ -687,7 +705,7 @@ export function apply(ctx: Context, config: Config) {
     return (await ctx.database.get('players', { qid: playerId }, ['group']))[0].group
   }
 
-  async function getEventInfo(playerId) {
+  async function getEventInfo(playerId: string) {
     let einfo = (await ctx.database.get('erank', { qid: playerId }))[0]
     if (einfo == undefined) return [0, 0]
     return [einfo.totalRuns, einfo.totalScore]
@@ -707,7 +725,7 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
-    return `玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}`
+    return `${((!session.onebot) ? '-\n' : '')}玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}`
   }
 
   async function drs_timer(session: Session, targetType: string): Promise<string> {
