@@ -506,12 +506,12 @@ export function apply(ctx: Context, config: Config) {
         }
         await ctx.database.remove('dlines', { lineType: joinType })
       }
-      else drs_message += await drs_timer(joinType)
+      else drs_message += await drs_timer(session, joinType)
       await session.send(drs_message)
       return
     }
     else if (foundType == joinType)
-      await session.send(`${await getUserName(session, qqid)} 你已在${joinType}队伍中\n————————————\n${await formatted_DrsN(session, joinType)}————————————\n${await drs_timer(joinType)}`)
+      await session.send(`${await getUserName(session, qqid)} 你已在${joinType}队伍中\n————————————\n${await formatted_DrsN(session, joinType)}————————————\n${await drs_timer(session, joinType)}`)
     else {
       await quit_drs(session)
       await join_drs(session, joinType)
@@ -589,15 +589,19 @@ export function apply(ctx: Context, config: Config) {
     return foundIdList
   }
 
-  async function findWaitFromDrs(checkType: string): Promise<string[]> {
+  async function findWaitFromDrs(session: Session, checkType: string): Promise<string[]> {
     let dinfo = await ctx.database.get('dlines', { lineType: checkType })
     if (dinfo[0] == undefined) return []
     let foundIdList: string[] = []
-    dinfo.forEach(element => {
+    for (const element of dinfo) {
       let waitTimeLeft = element.waitDue - Date.now()
+      if (waitTimeLeft <= 0) {
+        await ctx.database.remove('dlines', { qid: element.qid })
+        await session.send(`${await getUserName(session, element.qid)} 超时被踢出${dinfo[0].lineType}队列`)
+      }
       let formatted_time = `${Math.floor(waitTimeLeft / 6e4)}:${('' + Math.floor((waitTimeLeft % 6e4) / 1e3)).padStart(2, '0')}`
       foundIdList.push(formatted_time)
-    });
+    }
     return foundIdList
   }
 
@@ -643,9 +647,9 @@ export function apply(ctx: Context, config: Config) {
     for (var i = 7; i <= 12; i++) {
       lineMsg = ''
       dinfo = await findIdFromDrs(`D${i}`)
-      if (dinfo.length != 0) lineMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}\n${await drs_timer(`D${i}`)}\n`
+      if (dinfo.length != 0) lineMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}\n${await drs_timer(session, `D${i}`)}\n`
       dinfo = await findIdFromDrs(`K${i}`)
-      if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}\n${await drs_timer(`K${i}`)}\n`
+      if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}\n${await drs_timer(session, `K${i}`)}\n`
       linesMsg += lineMsg
     }
     if (linesMsg == '') return '所有队列为空'
@@ -698,8 +702,8 @@ export function apply(ctx: Context, config: Config) {
     return `玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}`
   }
 
-  async function drs_timer(targetType: string): Promise<string> {
-    let timerList = await findWaitFromDrs(targetType)
+  async function drs_timer(session: Session, targetType: string): Promise<string> {
+    let timerList = await findWaitFromDrs(session, targetType)
     let tmp = '超时计时: '
     for (const timer of timerList) {
       tmp += `⏱️${timer} `
