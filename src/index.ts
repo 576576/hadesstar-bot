@@ -540,7 +540,7 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function quit_drs(session: Session): Promise<void> {
-    let qqid = await getQQid(session)
+    let qqid = await getQQid(session, undefined, true)
     if (!qqid) return
 
     let foundType = await findDrsFromId(session, qqid)
