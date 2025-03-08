@@ -196,24 +196,24 @@ export function apply(ctx: Context, config: Config) {
     console.log(`\n${session.userId}: ${session.content}`)
 
     //骚话模块
-    let isToSaohua = (Math.random() >= 0.95)
+    let isToSaohua = (Math.random() >= 0.995)
     if (isToSaohua) saohuaTalk(session)
 
   })
 
-  //重置 CXHX 管理指令
-  ctx.command('CZHX', '重置所有玩家数据')
-    .action(async ({ session }) => {
-      if (!isAdmin(session)) {
-        session.send('无管理权限')
-        return
-      }
-      // 重置players及dlines
-      resetATable('players')
-      resetATable('dlines')
-      initPlayerTables()
-      session.send('已重置所有玩家数据')
-    })
+  // //重置 CZHX 管理指令
+  // ctx.command('CZHX', '重置所有玩家数据')
+  //   .action(async ({ session }) => {
+  //     if (!isAdmin(session)) {
+  //       session.send('无管理权限')
+  //       return
+  //     }
+  //     // 重置players及dlines
+  //     resetATable('players')
+  //     resetATable('dlines')
+  //     initPlayerTables()
+  //     session.send('已重置所有玩家数据')
+  //   })
 
   ctx.command('CZ <userId>', '重置单个玩家数据')
     .action(async ({ session }, userId) => {
@@ -232,32 +232,32 @@ export function apply(ctx: Context, config: Config) {
       session.send('已重置一名玩家数据')
     })
 
-  //调试 ts 群主及代理首席指令
-  ctx.command('ts', '调试数据表')
-    .action(async ({ session }) => {
-      if (!isAdmin(session)) {
-        session.send('无管理权限')
-        return
-      }
-      console.clear()
-      console.log('\n\n')
-      let tsTables = ['players', 'dlines', 'elines', 'erank']
-      for (const tsTable of tsTables) {
-        console.log(`${tsTable}数据如下:\n——————————\n`)
-        console.log(await ctx.database.get(tsTable as any, {}))
-      }
-    })
+  // //调试 ts 群主及代理首席指令
+  // ctx.command('ts', '调试数据表')
+  //   .action(async ({ session }) => {
+  //     if (!isAdmin(session)) {
+  //       session.send('无管理权限')
+  //       return
+  //     }
+  //     console.clear()
+  //     console.log('\n\n')
+  //     let tsTables = ['players', 'dlines', 'elines', 'erank']
+  //     for (const tsTable of tsTables) {
+  //       console.log(`${tsTable}数据如下:\n——————————\n`)
+  //       console.log(await ctx.database.get(tsTable as any, {}))
+  //     }
+  //   })
 
-  //测试 cs 管理指令
-  ctx.command('cs', '')
-    .action(async ({ session }) => {
-      if (!isAdmin(session)) {
-        session.send('无管理权限')
-        return
-      }
-      await session.sendQueued('ok')
-      console.log(await showAllLines(session))
-    })
+  // //测试 cs 管理指令
+  // ctx.command('cs', '')
+  //   .action(async ({ session }) => {
+  //     if (!isAdmin(session)) {
+  //       session.send('无管理权限')
+  //       return
+  //     }
+  //     await session.sendQueued('ok')
+  //     console.log(await showAllLines(session))
+  //   })
 
   //初始化 CSH <qid> [openId]
   ctx.command('CSH <qid> ', '初始化玩家数据')
@@ -276,27 +276,15 @@ export function apply(ctx: Context, config: Config) {
       session.send(`已进行初始化\n请使用LR名字 LR集团 LR科技录入信息`)
     })
 
-  //引导上牌
-  ctx.command('D6')
-    .alias('K6').alias('HS6')
-    .action(async ({ session }) => {
-      let isInit = await isInitialized(session)
-      if (!isInit) {
-        session.send(`请使用CSH (qq号)自助初始化,或附带以下信息联系管理💦\n${session.userId}`)
-        return
-      }
-      session.send('暗红巨星的最低等级为7哦💦')
-
-    })
-
   //加入三人组队 D<7-12>
   ctx.command('D <arg>')
     .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
     .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
+    .alias('D6', { args: ['6'] }).alias('K6', { args: ['6'] }).alias('HS6', { args: ['6'] })
     .action(async ({ session }, arg) => {
       let isInit = await isInitialized(session)
       if (!isInit) {
-        session.send(`请使用CSH (qq号)初始化`)
+        session.send(`请使用CSH (游戏号)初始化`)
         return
       }
       if (isValidDrsNum(+arg)) {
@@ -304,7 +292,12 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       if (arg == '6') {
-        session.execute('D6')
+        let isInit = await isInitialized(session)
+        if (!isInit) {
+          session.send(`请使用CSH (游戏号)自助初始化,或附带以下信息联系管理💦\n${session.userId}`)
+          return
+        }
+        session.send('暗红巨星的最低等级为7哦💦')
         return
       }
       session.send('请输入正确队列数字7-12')
@@ -317,7 +310,7 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, arg) => {
       let isInit = await isInitialized(session)
       if (!isInit) {
-        session.send(`请使用CSH (qq号)初始化`)
+        session.send(`请使用CSH (游戏号)初始化`)
         return
       }
       if (isValidDrsNum(+arg)) {
@@ -334,7 +327,7 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, arg) => {
       let isInit = await isInitialized(session)
       if (!isInit) {
-        session.send(`请使用CSH (qq号)自助初始化,或附带以下信息联系管理💦\n${session.userId}`)
+        session.send(`请使用CSH (游戏号)自助初始化,或附带以下信息联系管理💦\n${session.userId}`)
         return
       }
       if (!rs_event_status) {
@@ -441,8 +434,8 @@ export function apply(ctx: Context, config: Config) {
     })
 
   //授权车牌 SQ <licence> <playerId> 管理指令
-  ctx.command('SQ <licence> <playerId>', '授权车牌 SQ 114514 D9')
-    .action(async ({ session }, licence, playerId?) => {
+  ctx.command('SQ <licence> <playerId>', '授权车牌 SQ D9 11451')
+    .action(async ({ session }, licence, playerId) => {
       if (!isAdmin(session)) {
         session.send('无管理权限')
         return

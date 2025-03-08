@@ -34,7 +34,7 @@ hadesstar-bot是仙女座星雲冥王星bot的ts实现.
 
 ### 适配adapter-qq的额外指令
 
-仅在适配qq开放平台运行时,以下指令有效,使用onebot框架运行时请忽略.
+仅在适配qq开放平台运行时,以下指令有效.
 
 - 玩家管理
   - 初始化玩家(管理)
@@ -45,4 +45,4 @@ hadesstar-bot是仙女座星雲冥王星bot的ts实现.
 
 - database
 - adapter-qq
-- adapter-onebot (二选一)
+<!-- - adapter-onebot (二选一) -->
