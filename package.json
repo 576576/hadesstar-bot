@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-hadesstar-bot",
-  "version": "3.5.7",
+  "version": "3.5.8",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "contributors": [
@@ -19,7 +19,7 @@
   "koishi": {
     "description": {
       "en": "manage HadesStar drs lines and rs events",
-      "zh": "仙女座星雲红星/红活bot的ts实现"
+      "zh": "原仙女座星雲暗红星/红活bot的ts实现"
     },
     "preview": true,
     "browser": true,
