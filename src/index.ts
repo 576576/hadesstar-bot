@@ -594,7 +594,7 @@ export function apply(ctx: Context, config: Config) {
 
     let foundType = await findDrsFromId(session, qqid)
     if (foundType == 'K0') {
-      await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType }])
+      await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType, waitDue: Date.now() + config.drsWaitTime }])
       let timer = await drs_timer(session, joinType)
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
