@@ -826,7 +826,7 @@ export function apply(ctx: Context, config: Config) {
   async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
     let isInit = await isInitialized(session, playerId)
     if (!isInit) return '玩家信息未初始化\n请使用CSH 指令自助初始化'
-    return `${((!session.onebot) ? '-\n' : '')}玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}\nQ Q: ${await getQQid(session, playerId)}`
+    return `${((!session.onebot) ? '-\n' : '')}玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}`
   }
 
   async function drs_timer(session: Session, targetType: string): Promise<string> {

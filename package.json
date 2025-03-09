@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-hadesstar-bot",
-  "version": "3.5.8",
+  "version": "3.5.9",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "contributors": [
