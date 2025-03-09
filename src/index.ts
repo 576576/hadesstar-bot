@@ -368,7 +368,7 @@ export function apply(ctx: Context, config: Config) {
     })
 
   //更新信息 LR[科技/集团/名字]
-  ctx.command('LR科技 <techString> [playerId]', 'LR 创0富0延0强0 11451')
+  ctx.command('LR科技 <techString> [playerId]')
     .alias('LR')
     .action(async ({ session }, techString, playerId?) => {
       if (playerId != undefined && !isAdmin(session)) {
@@ -385,7 +385,7 @@ export function apply(ctx: Context, config: Config) {
       let techs_in: number[] = validateTechs(techString)
       if (techs_in) {
         await ctx.database.upsert('players', () => [{ qid: qqid, techs: techs_in }])
-        await session.send(`已录入${await getTech(qqid)}`)
+        await session.send(`已录入${techString}`)
       }
       else {
         await session.send('请录入正确科技格式\n例: LR科技 创1富2延3强4')
@@ -407,7 +407,7 @@ export function apply(ctx: Context, config: Config) {
       }
       else {
         await ctx.database.upsert('players', () => [{ qid: qqid, cachedName: nick }])
-        await session.send(`已录入名字 ${await getUserName(session, qqid)}`)
+        await session.send(`已录入名字 ${nick}`)
       }
     })
   ctx.command('LR集团 <playerGroup> [playerId]', 'LR集团 巨蛇座星雲')
@@ -426,7 +426,7 @@ export function apply(ctx: Context, config: Config) {
       }
       else {
         await ctx.database.upsert('players', () => [{ qid: qqid, group: playerGroup }])
-        await session.send(`已录入集团 ${await getGroup(qqid)}`)
+        await session.send(`已录入集团 ${playerGroup}`)
       }
     })
 
@@ -574,7 +574,7 @@ export function apply(ctx: Context, config: Config) {
     //检查车牌
     let lineLevel = (+joinType.substring(1))
 
-    let pInfo = await getUserInfos(qqid)
+    let pInfo = await getUserInfo(qqid)
     if (pInfo.licence < lineLevel) {
       await session.send(`你未获得${joinType}车牌,请联系管理授权`)
       return
@@ -643,7 +643,7 @@ export function apply(ctx: Context, config: Config) {
     console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
     //检查车牌
     let lineLevel = (+joinType.substring(2))
-    let driverLicence = await getLicence(await getQQid(session))
+    let driverLicence = await getLicence(qqid)
     if (driverLicence < lineLevel) {
       await session.send(`你未获得${joinType}车牌,请联系管理授权`)
       return null
@@ -737,20 +737,18 @@ export function apply(ctx: Context, config: Config) {
     if (dinfo.length == 0) return `${targetType}队列为空`
     let drs_message = ''
     for (const playerId of dinfo) {
+      let pInfo = await getUserInfo(playerId)
       let playerName = await getUserName(session, playerId, isTryAt)
-      let playerRoute = await getPlayRoutes(playerId)
-      let playerTech = await getTech(playerId)
-      let playerGroup = await getGroup(playerId)
-      drs_message += `╔ ${playerName}\n╠ [${playerGroup}] ${playerRoute[targetNum]}\n╚ [${playerTech}]\n`
+      drs_message += `╔ ${playerName}\n╠ [${pInfo.group}] ${pInfo.playRoutes[targetNum]}\n╚ [${formatted_Tech(pInfo.techs)}]\n`
     }
     return drs_message
   }
 
   async function formatted_RsEvent(session: Session, playerId: string, isDetail?: boolean): Promise<string> {
     let playerName = await getUserName(session, playerId)
-    let playerGroup = await getGroup(playerId)
+    let pInfo = await getUserInfo(playerId)
     let einfo = await getEventInfo(playerId)
-    return isDetail ? `╔ 名称: ${playerName}\n╠ [${playerGroup}]╠ 场次: ${einfo[0]}\n╚ 总分: ${einfo[1]}` :
+    return isDetail ? `╔ 名称: ${playerName}\n╠ [${pInfo.group}]╠ 场次: ${einfo[0]}\n╚ 总分: ${einfo[1]}` :
       `${await getUserName(session, playerId)}\n【总分:${einfo[1]} 场次:${einfo[0]}】`
   }
 
@@ -779,22 +777,12 @@ export function apply(ctx: Context, config: Config) {
     return lineMsg
   }
 
-  async function getUserInfos(playerId: string): Promise<Pick<Players, 'licence' | 'playRoutes' | 'techs' | 'group' | 'cachedName'>> {
+  async function getUserInfo(playerId: string): Promise<Pick<Players, 'licence' | 'playRoutes' | 'techs' | 'group' | 'cachedName'>> {
     return (await ctx.database.get('players', { qid: playerId }, ['licence', 'playRoutes', 'techs', 'group', 'cachedName']))[0]
   }
 
   async function getLicence(playerId: string): Promise<number> {
     return (await ctx.database.get('players', { qid: playerId }, ['licence']))[0].licence
-  }
-
-  async function getPlayRoutes(playerId: string): Promise<number[]> {
-    return (await ctx.database.get('players', { qid: playerId }, ['playRoutes']))[0].playRoutes
-  }
-
-  async function getTech(playerId: string): Promise<string> {
-    let techs_get = (await ctx.database.get('players', { qid: playerId }, ['techs']))[0].techs
-    if (techs_get[0] == 0 && techs_get[1] == 0 && techs_get[2] == 0 && techs_get[3] == 0) return '科技未录入'
-    return `创${techs_get[0]}富${techs_get[1]}延${techs_get[2]}强${techs_get[3]}`
   }
 
   async function getGroup(playerId: string): Promise<string> {
@@ -823,7 +811,9 @@ export function apply(ctx: Context, config: Config) {
   async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
     let isInit = await isInitialized(session, playerId)
     if (!isInit) return '玩家信息未初始化\n请使用CSH 指令自助初始化'
-    return `${((!session.onebot) ? '-\n' : '')}玩家: ${await getUserName(session, playerId)}\n集团: ${await getGroup(playerId)}\n车牌: D${await getLicence(playerId)}\n场数: ${await getPlayRoutes(playerId)}\n科技: ${await getTech(playerId)}`
+    let pInfo = await getUserInfo(playerId)
+    let playerTech = formatted_Tech(pInfo.techs)
+    return `${((!session.onebot) ? '-\n' : '')}玩家: ${pInfo.cachedName}\n集团: ${pInfo.group}\n车牌: D${pInfo.licence}\n场数: ${pInfo.playRoutes}\n科技: ${playerTech}`
   }
 
   async function drs_timer(session: Session, targetType: string): Promise<string> {
@@ -885,7 +875,7 @@ export function apply(ctx: Context, config: Config) {
 
   function isAdmin(session: Session): boolean {
     // return config.adminList.includes(session.userId)
-    return true //暂时关闭权限系统
+    return true //腾讯权限系统不完善，暂时关闭
   }
 
   function validateTechs(arg: string): number[] {
@@ -895,10 +885,15 @@ export function apply(ctx: Context, config: Config) {
       if (match && match[1] != undefined && isValidTechNum(+match[1])) {
         result.push(+match[1]);
       } else {
-        return null;
+        return null
       }
     }
-    return result;
+    return result
+  }
+
+  function formatted_Tech(techs: number[]): string {
+    if (techs.every((tech) => tech === 0)) return '科技未录入'
+    return `创${techs[0]}富${techs[1]}延${techs[2]}强${techs[3]}`
   }
 
   async function saohuaTalk(session: Session) {
