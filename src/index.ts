@@ -12,7 +12,7 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  humorousRemarks: Schema.array(Schema.string()).description('骚话模块使用的句子').default(['大哥你去哪了，我是你的小张飞呀!', '义父你去哪了，我是你的小奉先呀!']),
+  // humorousRemarks: Schema.array(Schema.string()).description('骚话模块使用的句子').default(['大哥你去哪了，我是你的小张飞呀!', '义父你去哪了，我是你的小奉先呀!']),
   rsEventGroupName: Schema.string().description('红活榜单使用的集团名').default(''),
   drsWaitTime: Schema.number().description('每个玩家在超时前等待的时间 ms').default(18e5)
 })
@@ -192,9 +192,9 @@ export function apply(ctx: Context, config: Config) {
 
     console.log(`\n${session.userId}: ${session.content}`)
 
-    //骚话模块
-    let isToSaohua = (Math.random() >= 0.995)
-    if (isToSaohua) saohuaTalk(session)
+    // //骚话模块
+    // let isToSaohua = (Math.random() >= 0.995)
+    // if (isToSaohua) saohuaTalk(session)
 
   })
 
