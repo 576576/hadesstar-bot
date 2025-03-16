@@ -243,6 +243,7 @@ export function apply(ctx: Context, config: Config) {
         session.send('未找到该玩家')
         return
       }
+      await ctx.database.remove('players', { qid: qqid })
       await ctx.database.remove('dlines', { qid: qqid })
       await ctx.database.remove('elines', { qid: qqid })
       await ctx.database.remove('erank', { qid: qqid })
