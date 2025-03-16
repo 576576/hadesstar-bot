@@ -6,15 +6,40 @@ export const name = 'hadesstar-bot'
 export const inject = ['database']
 
 export interface Config {
-  humorousRemarks?: string[]
-  rsEventGroupName?: string
-  drsWaitTime?: number
+  admins: string[]
+  drsWaitTime: number
+  humor: { enabled?: boolean, chance?: number, talks?: string[] }
+  event: { name?: string, minScore?: number }
 }
 
+
+
 export const Config: Schema<Config> = Schema.object({
-  // humorousRemarks: Schema.array(Schema.string()).description('骚话模块使用的句子').default(['大哥你去哪了，我是你的小张飞呀!', '义父你去哪了，我是你的小奉先呀!']),
-  rsEventGroupName: Schema.string().description('红活榜单使用的集团名').default(''),
-  drsWaitTime: Schema.number().description('每个玩家在超时前等待的时间 ms').default(18e5)
+  admins: Schema.array(String).description('管理员QQ号或openId').role('table').default([]),
+  drsWaitTime: Schema.number().description('超时踢出前等待的时间 ms').default(18e5),
+  event: Schema.intersect([
+    Schema.object({}).description('红活模块配置'),
+    Schema.union([
+      Schema.object({
+        name: Schema.string().description('红活名称').default(''),
+        minScore: Schema.number().description('红活最低分数').default(0),
+      }),
+      Schema.object({}),
+    ])
+  ]),
+  humor: Schema.intersect([
+    Schema.object({
+      enabled: Schema.boolean().default(false).description('是否开启骚话模块'),
+    }).description('骚话模块配置'),
+    Schema.union([
+      Schema.object({
+        enabled: Schema.const(true).required(),
+        chance: Schema.number().description('骚话概率').default(0.005),
+        talks: Schema.array(String).description('骚话列表').role('table').default([]),
+      }),
+      Schema.object({}),
+    ])
+  ]),
 })
 
 //初始化各种变量
@@ -60,11 +85,6 @@ export function apply(ctx: Context, config: Config) {
 
   initPlayerTables()
   initRsEventTables()
-
-  //权限管理
-  ctx.permissions.provide('authority:2', async (name, session) => {
-    return session.onebot?.sender?.role === 'owner' || session.onebot?.sender?.role === 'admin'
-  })
 
   function initPlayerTables() {
     // 初始化表players
@@ -192,29 +212,29 @@ export function apply(ctx: Context, config: Config) {
 
     console.log(`\n${session.userId}: ${session.content}`)
 
-    // //骚话模块
-    // let isToSaohua = (Math.random() >= 0.995)
-    // if (isToSaohua) saohuaTalk(session)
+    //骚话模块
+    saohuaTalk(session)
 
   })
 
-  // //重置 CZHX 管理指令
-  // ctx.command('CZHX', '重置所有玩家数据')
-  //   .action(async ({ session }) => {
-  //     if (!isAdmin(session)) {
-  //       session.send('无管理权限')
-  //       return
-  //     }
-  //     // 重置players及dlines
-  //     resetATable('players')
-  //     resetATable('dlines')
-  //     initPlayerTables()
-  //     session.send('已重置所有玩家数据')
-  //   })
+  //重置 CZHX 管理指令
+  ctx.command('CZHX', '重置所有玩家数据')
+    .action(async ({ session }) => {
+      if (!(await isAdmin(session))) {
+        session.send('无管理权限')
+        return
+      }
+      // 重置players及dlines
+      resetATable('players')
+      resetATable('dlines')
+      initPlayerTables()
+      session.send('已重置所有玩家数据')
+    })
 
+  // //重置单个玩家数据
   ctx.command('CZ <userId>', '重置单个玩家数据')
     .action(async ({ session }, userId) => {
-      if (!isAdmin(session)) {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -229,48 +249,27 @@ export function apply(ctx: Context, config: Config) {
       session.send('已重置一名玩家数据')
     })
 
-  // //调试 ts 群主及代理首席指令
-  // ctx.command('ts', '调试数据表')
-  //   .action(async ({ session }) => {
-  //     if (!isAdmin(session)) {
-  //       session.send('无管理权限')
-  //       return
-  //     }
-  //     console.clear()
-  //     console.log('\n\n')
-  //     let tsTables = ['players', 'dlines', 'elines', 'erank']
-  //     for (const tsTable of tsTables) {
-  //       console.log(`${tsTable}数据如下:\n——————————\n`)
-  //       console.log(await ctx.database.get(tsTable as any, {}))
-  //     }
-  //   })
-
-  // //测试 cs 管理指令
-  // ctx.command('cs', '')
-  //   .action(async ({ session }) => {
-  //     if (!isAdmin(session)) {
-  //       session.send('无管理权限')
-  //       return
-  //     }
-  //     await session.sendQueued('ok')
-  //     console.log(await showAllLines(session))
-  //   })
-
   //初始化 CSH <qid> [openId]
-  ctx.command('CSH <qid> ', '初始化玩家数据')
+  ctx.command('CSH <qid> [openId]', '初始化玩家数据')
     .action(async ({ session }, qid, openId?) => {
+      let admin = await isAdmin(session)
       if (!qid || isNaN(+qid)) {
-        session.send('初始化失败,请输入玩家id')
+        session.send('初始化失败,请使用正确指令\nCSH (自己的QID)')
         return
       }
-      if (!!openId && !isAdmin(session)) {
-        session.send('无管理权限,无法初始化他人')
+      if (!!openId && !admin) {
+        session.send('初始化失败\n无管理权限只能初始化自己')
+        return
+      }
+      let isInit = await isInitialized(session, qid)
+      if (isInit && !admin) {
+        session.send('初始化失败\n玩家信息已初始化,请勿重复操作,如需更改请联系管理')
         return
       }
       if (!openId) openId = session.userId
       console.log(`${openId}: 绑定了${qid}`)
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId, cachedName: qid }])
-      session.send(`已进行初始化\n请使用LR名字 LR集团 LR科技录入信息`)
+      session.send(`${openId}: 绑定了${qid}\n请使用LR名字 LR集团 LR科技录入信息`)
     })
 
   //加入三人组队 D<7-12>
@@ -363,7 +362,7 @@ export function apply(ctx: Context, config: Config) {
       let isInit = await isInitialized(session, qqid)
 
       console.log(`${await getQQid(session)}: 试图查询${qqid}信息`)
-      if (!qqid || !isInit) session.send('玩家信息未初始化\n请使用CSH 指令自助初始化')
+      if (!qqid || !isInit) session.send(`玩家信息未初始化\n请使用CSH 指令自助初始化或联系管理\n${session.userId}`)
       else session.send(await formatted_playerdata(session, qqid))
     })
 
@@ -371,8 +370,8 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('LR科技 <techString> [playerId]')
     .alias('LR')
     .action(async ({ session }, techString, playerId?) => {
-      if (playerId != undefined && !isAdmin(session)) {
-        session.send('无管理权限')
+      if (playerId != undefined && !(await isAdmin(session))) {
+        session.send('无管理权限,只能更新自己信息')
         return
       }
       let qqid = await getQQid(session, playerId, true)
@@ -394,8 +393,8 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('LR名字 <nick> [playerId]')
     .alias('LR账号')
     .action(async ({ session }, nick, playerId?) => {
-      if (playerId != undefined && !isAdmin(session)) {
-        session.send('无管理权限')
+      if (playerId != undefined && !(await isAdmin(session))) {
+        session.send('无管理权限,只能更新自己信息')
         return
       }
       let qqid = await getQQid(session, playerId, true)
@@ -413,8 +412,8 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('LR集团 <playerGroup> [playerId]', 'LR集团 巨蛇座星雲')
     .alias('LR常驻集团')
     .action(async ({ session }, playerGroup, playerId?) => {
-      if (playerId != undefined && !isAdmin(session)) {
-        session.send('无管理权限')
+      if (playerId != undefined && !(await isAdmin(session))) {
+        session.send('无管理权限,只能更新自己信息')
         return
       }
       let qqid = await getQQid(session, playerId, true)
@@ -433,7 +432,7 @@ export function apply(ctx: Context, config: Config) {
   //授权车牌 SQ <licence> <playerId> 管理指令
   ctx.command('SQ <licence> <playerId>', '授权车牌 SQ D9 11451')
     .action(async ({ session }, licence, playerId) => {
-      if (!isAdmin(session)) {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -459,7 +458,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('KGH [eState]', '')
     .alias('KH', { args: ['true'] }).alias('GH', { args: ['false'] })
     .action(async ({ session }, eState?) => {
-      if (!isAdmin(session)) {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -475,7 +474,7 @@ export function apply(ctx: Context, config: Config) {
   //生成红活排行并合并转发 PH
   ctx.command('PH', '查看红活排行')
     .action(async ({ session }) => {
-      if (!isAdmin(session)) {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -484,8 +483,7 @@ export function apply(ctx: Context, config: Config) {
         await session.sendQueued('未检索到红活排行信息')
         return
       }
-      let dateNow = new Date()
-      let tmp = [`${config.rsEventGroupName} ${dateNow.getFullYear()}.${dateNow.getMonth()}.${dateNow.getDay()}红活榜`], index = 0
+      let tmp = [`${config.event.name} 红活榜`], index = 0
       for (const einfo of einfos) {
         let index2 = Math.floor(index / 15)
         tmp[index2] += `\n${++index}. ${await formatted_RsEvent(session, einfo.qid)}`
@@ -532,7 +530,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('LH <eScore> <userId>', '管理覆盖录入红活')
     .action(async ({ session }, userId, eScore_in) => {
-      if (!isAdmin(session)) {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -552,8 +550,8 @@ export function apply(ctx: Context, config: Config) {
     })
 
   ctx.command('CZHH', '重置红活')
-    .action(({ session }) => {
-      if (!isAdmin(session)) {
+    .action(async ({ session }) => {
+      if (!(await isAdmin(session))) {
         session.send('无管理权限')
         return
       }
@@ -753,14 +751,14 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function showAllLines(session: Session): Promise<string> {
-    let linesMsg = ((!session.onebot) ? '-\n' : ''), lineMsg: string, dinfo: string[]
+    let linesMsg = ((!session.onebot) ? '-\n' : ''), dinfo: string[], timer: string
     for (var i = 7; i <= 12; i++) {
-      lineMsg = ''
+      timer = await drs_timer(session, `D${i}`)
       dinfo = await findIdFromDrs(`D${i}`)
-      if (dinfo.length != 0) lineMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}${await drs_timer(session, `D${i}`)}\n`
+      if (dinfo.length != 0) linesMsg += `D${i}队列—————\n${(await formatted_DrsN(session, `D${i}`))}${timer}\n`
+      timer = await drs_timer(session, `K${i}`)
       dinfo = await findIdFromDrs(`K${i}`)
-      if (dinfo.length != 0) lineMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}${await drs_timer(session, `K${i}`)}\n`
-      linesMsg += lineMsg
+      if (dinfo.length != 0) linesMsg += `K${i}队列—————\n${(await formatted_DrsN(session, `K${i}`))}${timer}\n`
     }
     if (linesMsg == ((!session.onebot) ? '-\n' : '')) return '所有队列为空'
     else linesMsg += '————————\n其余队列为空'
@@ -768,11 +766,13 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function showALine(session: Session, lineNum: number): Promise<string> {
-    let lineMsg = ((!session.onebot) ? '-\n' : ''), dinfo: string[]
+    let lineMsg = ((!session.onebot) ? '-\n' : ''), dinfo: string[], timer: string
+    timer = await drs_timer(session, `D${lineNum}`)
     dinfo = await findIdFromDrs(`D${lineNum}`)
-    if (dinfo.length != 0) lineMsg += `D${lineNum}队列—————\n${(await formatted_DrsN(session, `D${lineNum}`))}${await drs_timer(session, `D${lineNum}`)}\n`
+    if (dinfo.length != 0) lineMsg += `D${lineNum}队列—————\n${(await formatted_DrsN(session, `D${lineNum}`))}${timer}\n`
+    timer = await drs_timer(session, `K${lineNum}`)
     dinfo = await findIdFromDrs(`K${lineNum}`)
-    if (dinfo.length != 0) lineMsg += `K${lineNum}队列—————\n${(await formatted_DrsN(session, `K${lineNum}`))}${await drs_timer(session, `K${lineNum}`)}\n`
+    if (dinfo.length != 0) lineMsg += `K${lineNum}队列—————\n${(await formatted_DrsN(session, `K${lineNum}`))}${timer}\n`
     if (!lineMsg.includes('队列')) lineMsg += `D${lineNum}/K${lineNum}队列为空`
     return lineMsg
   }
@@ -810,16 +810,18 @@ export function apply(ctx: Context, config: Config) {
 
   async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
     let isInit = await isInitialized(session, playerId)
-    if (!isInit) return '玩家信息未初始化\n请使用CSH 指令自助初始化'
+    if (!isInit) return `玩家信息未初始化\n请使用CSH 指令自助初始化或联系管理\n${playerId}`
     let pInfo = await getUserInfo(playerId)
+    let qqid = await getQQid(session, playerId)
+    let openId = await findOpenIdFromQQid(qqid)
     let playerTech = formatted_Tech(pInfo.techs)
-    return `${((!session.onebot) ? '-\n' : '')}玩家: ${pInfo.cachedName}\n集团: ${pInfo.group}\n车牌: D${pInfo.licence}\n场数: ${pInfo.playRoutes}\n科技: ${playerTech}`
+    return `${((!session.onebot) ? '-\n' : '')}玩家: ${pInfo.cachedName}\n集团: ${pInfo.group}\n车牌: D${pInfo.licence}\n场数: ${pInfo.playRoutes}\n科技: ${playerTech}\nQ Q: ${qqid}\nOpenId: ${openId}`
   }
 
   async function drs_timer(session: Session, targetType: string): Promise<string> {
     let timerList = await findWaitFromDrs(session, targetType)
     console.log(timerList)
-    let tmp = '超时计时: '
+    let tmp = '=>'
     for (const timer of timerList) {
       tmp += timer
     }
@@ -837,14 +839,14 @@ export function apply(ctx: Context, config: Config) {
   async function getQQid(session: Session, userId?: string, noisy?: boolean): Promise<string> {
     let qqid: string
     if (!userId) {
-      if (session.onebot) return session.userId
+      if (session.platform == 'onebot') return session.userId
       else {
         qqid = await findQQidFromOpenId(session.userId)
         if (!qqid && noisy) session.send(`请联系管理初始化💦\n${session.userId}`)
         return qqid
       }
     }
-    if (session.onebot) {
+    if (session.platform == 'onebot') {
       let match = userId.match(/<at\s+[^>]*id="(\d+)"/)
       if (match && match[1] != undefined) return match[1]
       else if (!isNaN(+userId)) return userId
@@ -873,9 +875,12 @@ export function apply(ctx: Context, config: Config) {
     return !!qqid
   }
 
-  function isAdmin(session: Session): boolean {
-    // return config.adminList.includes(session.userId)
-    return true //腾讯权限系统不完善，暂时关闭
+  async function isAdmin(session: Session): Promise<boolean> {
+    if (session.platform === 'onebot')
+      return session.onebot?.sender?.role === 'owner' || session.onebot?.sender?.role === 'admin'
+    if (session.platform === 'qq')
+      return config.admins.includes(session.userId) || config.admins.includes(await getQQid(session))
+    return true //其他平台默认为管理员
   }
 
   function validateTechs(arg: string): number[] {
@@ -897,7 +902,8 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function saohuaTalk(session: Session) {
-    let saohua = config.humorousRemarks
+    if (!config.humor.enabled || Math.random() >= config.humor.chance || config.humor.talks.length == 0) return
+    let saohua = config.humor.talks
     await session.sendQueued(saohua[Math.floor(Math.random() * saohua.length)])
   }
 }
