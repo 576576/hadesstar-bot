@@ -1,12 +1,14 @@
 import { Context, Schema, Session, $ } from 'koishi'
 import { } from 'koishi-plugin-adapter-onebot'
 import { } from '@koishijs/plugin-adapter-qq'
+import * as fs from 'fs/promises'
+import * as path from 'path'
 
 export const name = 'hadesstar-bot'
 export const inject = ['database']
 
 export interface Config {
-  admin: { enabled?: boolean, members?: string[] }
+  admin: { enabled?: boolean, members?: string[], super?: string[] }
   drsWaitTime: number
   strictMode: boolean
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
@@ -14,7 +16,7 @@ export interface Config {
   menuCX: MenuCX
 }
 
-export enum MenuCX {
+enum MenuCX {
   GROUP = 1 << 0,
   LICENCE = 1 << 1,
   ROUTES = 1 << 2,
@@ -40,18 +42,17 @@ export const Config: Schema<Config> = Schema.object({
       Schema.object({
         enabled: Schema.const(true),
         members: Schema.array(String).description('管理员QQ号或openId').role('table').default([]),
+        super: Schema.array(String).description('红名单QQ号或openId').role('table').default([]),
       }),
       Schema.object({}),
     ])
   ]),
 
   event: Schema.intersect([
-    Schema.object({
-      enabled: Schema.boolean().description('开启红活'),
-    }).description('红活模块配置'),
+    Schema.object({}).description('红活模块配置'),
     Schema.union([
       Schema.object({
-        enabled: Schema.const(true).required(),
+        enabled: Schema.boolean().description('开启红活').default(false).hidden(),
         name: Schema.string().description('红活名称').default(''),
         minScore: Schema.number().description('红活最低分数').default(0),
       }),
@@ -113,6 +114,8 @@ export interface RsEventRanking {
 
 export function apply(ctx: Context, config: Config) {
 
+  const root = path.join(ctx.baseDir, 'data', name)
+
   initPlayerTables()
   initRsEventTables()
 
@@ -128,7 +131,7 @@ export function apply(ctx: Context, config: Config) {
       openId: {
         type: 'string',
         initial: null,
-        nullable: false,
+        nullable: true,
       },
       cachedName: {
         type: 'string',
@@ -261,8 +264,8 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('CZHX', '重置所有玩家数据')
     .action(async ({ session }) => {
-      if (!(await isAdmin(session))) {
-        session.send('无管理权限')
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
         return
       }
       // 重置players及dlines
@@ -326,12 +329,13 @@ export function apply(ctx: Context, config: Config) {
         session.send(initMessage(session))
         return
       }
-      if (isNaN(+arg)) {
+      if (arg == undefined) {
+        let qqid = await getQQid(session)
         try {
-          arg = '' + (await ctx.database.get('players', { qid: await getQQid(session) }))[0].latestLine
+          arg = '' + (await ctx.database.get('players', { qid: qqid }))[0].latestLine
         } catch (error) {
-          let qqid = await getQQid(session)
-          await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: +arg }])
+          await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
+          return
         }
       }
       if (isValidDrsNum(+arg)) {
@@ -353,12 +357,13 @@ export function apply(ctx: Context, config: Config) {
         session.send(initMessage(session))
         return
       }
-      if (isNaN(+arg)) {
+      if (arg == undefined) {
+        let qqid = await getQQid(session)
         try {
-          arg = '' + (await ctx.database.get('players', { qid: await getQQid(session) }))[0].latestLine
+          arg = '' + (await ctx.database.get('players', { qid: qqid }))[0].latestLine
         } catch (error) {
-          let qqid = await getQQid(session)
-          await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: +arg }])
+          await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
+          return
         }
       }
       if (isValidDrsNum(+arg)) {
@@ -382,8 +387,17 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       if (!config.event.enabled) {
-        session.send('红活未开启')
+        session.send('红活未开启,禁止加入')
         return
+      }
+      if (arg == undefined) {
+        let qqid = await getQQid(session)
+        try {
+          arg = '' + (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        } catch (error) {
+          await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
+          return
+        }
       }
       if (isValidDrsNum(+arg) || arg == '6') {
         await join_rs_event(session, arg)
@@ -503,8 +517,8 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('KGH [eState]', '管理开关红活')
     .alias('KH', { args: ['true'] }).alias('GH', { args: ['false'] })
     .action(async ({ session }, eState?) => {
-      if (!(await isAdmin(session))) {
-        session.send('无管理权限')
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
         return
       }
       if (eState != undefined) config.event.enabled = !eState
@@ -522,7 +536,7 @@ export function apply(ctx: Context, config: Config) {
         session.send('无管理权限')
         return
       }
-      let einfos = (await ctx.database.select('erank').orderBy(row => row.totalScore, 'desc').execute())
+      let einfos = (await ctx.database.select('erank').where(row => $.gt(row.totalScore, config.event.minScore)).orderBy(row => row.totalScore, 'desc').execute())
       if (einfos[0] == undefined) {
         await session.sendQueued('未检索到红活排行信息')
         return
@@ -551,7 +565,12 @@ export function apply(ctx: Context, config: Config) {
       let eventOrder = einfos.findIndex(rsRank => rsRank.qid == qqid) + 1
 
       let einfo = await getEventInfo(qqid)
-      session.send(`${((!session.onebot) ? '-\n' : '')}${await getUserName(session, qqid)} 红活状态:\n╔ 当前次数: ${einfo[0]}\n╠ 当前总分: ${einfo[1]}\n╚ 当前排行: ${eventOrder}${config.event.enabled ? '' : '\n——————————\n历史数据(红活未开启)'}`)
+      if (!einfo) {
+        session.send('未检索到玩家红活信息')
+        return
+      }
+      let playerName = await getUserName(session, qqid)
+      session.send(`${headMsg(session)}${userId ? playerName : ''}红活状态:\n╔ 当前次数: ${einfo.totalRuns}\n╠ 当前总分: ${einfo.totalScore}\n╚ 当前排行: ${eventOrder}${config.event.enabled ? '' : '\n——————————\n历史数据(红活未开启)'}`)
     })
 
   ctx.command('LRHH <lineNum> <eScore>', '录入红活分数')
@@ -573,7 +592,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('LH <eScore> <userId>', '管理补录红活分数')
     .action(async ({ session }, userId, eScore) => {
-      if (!(await isAdmin(session))) {
+      if (!(await isSuper(session))) {
         session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数')
         return
       }
@@ -594,15 +613,33 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('CZHH', '重置红活')
     .action(async ({ session }) => {
-      if (!(await isAdmin(session))) {
-        session.send('无管理权限')
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
         return
       }
+      session.send(`红活数据已${config.event.enabled ? '关闭并' : ''}重置`)
       config.event.enabled = false
       resetATable('elines')
       resetATable('erank')
       initRsEventTables()
-      session.send(`红活数据已${config.event.enabled ? '关闭并' : ''}重置`)
+    })
+
+  ctx.command('备份', '生成备份')
+    .action(async ({ session }) => {
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
+        return
+      }
+      await generateBackup(session, root)
+    })
+
+  ctx.command('恢复备份 <fileName>', '恢复备份')
+    .action(async ({ session }, fileName) => {
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
+        return
+      }
+      await importBackup(session, path.join(root, 'backup'), fileName)
     })
 
   console.clear()
@@ -652,7 +689,7 @@ export function apply(ctx: Context, config: Config) {
         for (const driverId of dinfo) {
           let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
           tmp[lineLevel - 7] += 1
-          await ctx.database.upsert('players', () => [{ qid: driverId, playRoutes: tmp }])
+          await ctx.database.upsert('players', (row) => [{ qid: driverId, playRoutes: tmp, latestLine: lineLevel }])
         }
         await ctx.database.remove('dlines', { lineType: joinType })
       }
@@ -701,7 +738,8 @@ export function apply(ctx: Context, config: Config) {
       let lineId = dinfo[dinfo.length - 1].lineId + 1000
       let eventScore = 0
       let playerGroup = await getGroup(qqid)
-      if (dinfo) eventScore = +(await getEventInfo(qqid))[1]
+      let einfo = await getEventInfo(qqid)
+      if (dinfo && einfo) eventScore = einfo.totalScore
       var drs_message = `${session.onebot ? session.author.nick : ''} 加入HS${joinType}队伍\n————————————\n╔ [${playerGroup}]\n╠ 红活次数: ${lineNum}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n————————————\nLRHH ${lineId} 得分`
       await session.send(drs_message)
       return dinfo[dinfo.length - 1].lineId
@@ -789,11 +827,10 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function formatted_RsEvent(session: Session, playerId: string, isDetail?: boolean): Promise<string> {
-    let playerName = await getUserName(session, playerId)
     let pInfo = await getUserInfo(playerId)
     let einfo = await getEventInfo(playerId)
-    return isDetail ? `╔ 名称: ${playerName}\n╠ [${pInfo.group}]╠ 场次: ${einfo[0]}\n╚ 总分: ${einfo[1]}` :
-      `${await getUserName(session, playerId)}\n【总分:${einfo[1]} 场次:${einfo[0]}】`
+    return isDetail ? `╔ 名称: ${pInfo.cachedName}\n╠ [${pInfo.group}]\n╠ 总分: ${einfo.totalScore}\n╚ 场次: ${einfo.totalRuns}` :
+      `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
   }
 
   async function showAllLines(session: Session): Promise<string> {
@@ -823,8 +860,12 @@ export function apply(ctx: Context, config: Config) {
     return lineMsg
   }
 
-  async function getUserInfo(playerId: string): Promise<Pick<Players, 'licence' | 'playRoutes' | 'techs' | 'group' | 'cachedName'>> {
-    return (await ctx.database.get('players', { qid: playerId }, ['licence', 'playRoutes', 'techs', 'group', 'cachedName']))[0]
+  async function getUserInfo(playerId: string): Promise<Pick<Players, 'qid' | 'licence' | 'playRoutes' | 'techs' | 'group' | 'cachedName'>> {
+    return (await ctx.database.get('players', { qid: playerId }, ['qid', 'licence', 'playRoutes', 'techs', 'group', 'cachedName']))[0]
+  }
+
+  async function getEventInfo(playerId: string): Promise<Pick<RsEventRanking, 'totalRuns' | 'totalScore'>> {
+    return (await ctx.database.get('erank', { qid: playerId }, ['totalRuns', 'totalScore']))[0]
   }
 
   async function getLicence(playerId: string): Promise<number> {
@@ -833,12 +874,6 @@ export function apply(ctx: Context, config: Config) {
 
   async function getGroup(playerId: string): Promise<string> {
     return (await ctx.database.get('players', { qid: playerId }, ['group']))[0].group
-  }
-
-  async function getEventInfo(playerId: string) {
-    let einfo = (await ctx.database.get('erank', { qid: playerId }))[0]
-    if (einfo == undefined) return [0, 0]
-    return [einfo.totalRuns, einfo.totalScore]
   }
 
   async function getUserName(session: Session, playerId?: string, isTryAt?: boolean): Promise<string> {
@@ -941,12 +976,25 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function isAdmin(session: Session): Promise<boolean> {
+    if (!config.admin.enabled) return true
+    if (session.platform === 'qq') {
+      let qqid = await getQQid(session)
+      return config.admin.members.includes(session.userId) || config.admin.members.includes(qqid) || isSuper(session)
+    }
     if (session.platform === 'onebot')
       return session.onebot?.sender?.role === 'owner' || session.onebot?.sender?.role === 'admin'
+    return false
+  }
+
+  async function isSuper(session: Session): Promise<boolean> {
     if (!config.admin.enabled) return true
-    if (session.platform === 'qq')
-      return config.admin.members.includes(session.userId) || config.admin.members.includes(await getQQid(session))
-    return false //默认不为管理员
+    if (session.platform === 'qq') {
+      let qqid = await getQQid(session)
+      return config.admin.super.includes(session.userId) || config.admin.super.includes(qqid)
+    }
+    if (session.platform === 'onebot')
+      return session.onebot?.sender?.role === 'owner' || config.admin.super.includes(session.userId)
+    return false
   }
 
   function validateTechs(arg: string): number[] {
@@ -968,10 +1016,42 @@ export function apply(ctx: Context, config: Config) {
     return `创${techs[0]}富${techs[1]}延${techs[2]}强${techs[3]}`
   }
 
+  function headMsg(session: Session): string {
+    return `${(session.qq) ? '-\n' : ''}`
+  }
+
   async function saohuaTalk(session: Session) {
     if (!config.humor.enabled || Math.random() >= config.humor.chance || config.humor.talks.length == 0) return
     let saohua = config.humor.talks
     await session.sendQueued(saohua[Math.floor(Math.random() * saohua.length)])
+  }
+
+  async function generateBackup(session: Session, filePath: string): Promise<void> {
+    await fs.mkdir(root, { recursive: true })
+    const now = new Date()
+    const fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.json`
+    try {
+      const playersData = await ctx.database.get('players', {}, ['qid', 'licence', 'playRoutes', 'techs', 'group', 'cachedName'])
+      const jsonContent = JSON.stringify(playersData, null, 2)
+      await fs.writeFile(path.join(filePath, 'backup', fileName), jsonContent)
+      session.send(`备份文件已保存至 ${fileName}`)
+    } catch (error) {
+      session.send(`备份操作失败`)
+    }
+  }
+
+  async function importBackup(session: Session, filePath: string, fileName: string): Promise<void> {
+    try {
+      const fullPath = path.join(filePath, fileName)
+      const fileContent = await fs.readFile(fullPath, 'utf-8')
+      const playersData = JSON.parse(fileContent)
+
+      await ctx.database.upsert('players', playersData)
+
+      session.send(`成功恢复 ${playersData.length} 条记录`)
+    } catch (error) {
+      session.send(`备份恢复失败,已回滚`)
+    }
   }
 }
 
