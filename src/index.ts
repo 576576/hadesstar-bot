@@ -116,11 +116,11 @@ export function apply(ctx: Context, config: Config) {
 
   const root = path.join(ctx.baseDir, 'data', name)
 
-  initPlayerTables()
+  initPlayerTable()
+  initDrsLines()
   initRsEventTables()
 
-  function initPlayerTables() {
-    // 初始化表players
+  function initPlayerTable() {
     ctx.model.extend('players', {
       qid: {
         type: 'string',
@@ -168,8 +168,9 @@ export function apply(ctx: Context, config: Config) {
       primary: 'qid',
       autoInc: false,
     })
+  }
 
-    // 初始化表dlines
+  function initDrsLines(){
     ctx.model.extend('dlines', {
       qid: {
         type: 'string',
@@ -271,7 +272,8 @@ export function apply(ctx: Context, config: Config) {
       // 重置players及dlines
       resetATable('players')
       resetATable('dlines')
-      initPlayerTables()
+      initPlayerTable()
+      initDrsLines()
       session.send('已重置所有玩家数据')
     })
 
@@ -297,26 +299,44 @@ export function apply(ctx: Context, config: Config) {
       session.send(`-\n已重置${userId}数据`)
     })
 
-  ctx.command('CSH <qid> [openId]', '初始化玩家数据')
-    .action(async ({ session }, qid, openId?) => {
-      let admin = await isAdmin(session)
-      if (!qid || isNaN(+qid)) {
-        session.send('初始化失败,请使用正确指令\nCSH (自己的QID)')
+    ctx.command('XFDR','清空队列')
+    .action(async ({ session }) => {
+      if (!(await isSuper(session))) {
+        session.send('无红名单权限')
         return
       }
+      resetATable('dlines')
+      initDrsLines()
+      session.send('已清除所有队列')
+    })
+
+  ctx.command('CSH <qid> [openId]', '初始化玩家数据')
+    .action(async ({ session }, qid, openId?) => {
+      let isInit = await isInitialized(session)
+      if (!qid || isNaN(+qid)) {
+        if (isInit) {
+          session.send('你已初始化,无需初始化\n信息如下')
+          session.execute('CX')
+          return
+        }
+        else {
+          session.send('初始化失败,请使用正确指令\nCSH (自己QQ号)')
+          return
+        }
+      }
+      let admin = await isAdmin(session)
       if (!!openId && !admin) {
         session.send('初始化失败\n无管理权限只能初始化自己')
         return
       }
-      let isInit = await isInitialized(session, qid)
       if (isInit && !admin) {
         session.send('初始化失败\n玩家信息已初始化,请勿重复操作,如需更改请联系管理')
         return
       }
       if (!openId) openId = session.userId
       console.log(`${openId}: 绑定了${qid}`)
-      await ctx.database.upsert('players', () => [{ qid: qid, openId: openId, cachedName: qid }])
-      session.send(`${openId}: 绑定了${qid}\n请使用LR名字 LR集团 LR科技录入信息`)
+      await ctx.database.upsert('players', () => [{ qid: qid, openId: openId}])
+      session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
     })
 
   ctx.command('D <arg>', '加入三人组队')
@@ -428,7 +448,7 @@ export function apply(ctx: Context, config: Config) {
       let isInit = await isInitialized(session, qqid)
 
       console.log(`${await getQQid(session)}: 试图查询${qqid}信息`)
-      if (!qqid || !isInit) session.send(initMessage(session))
+      if (!isInit) session.send(initMessage(session))
       else session.send(await formatted_playerdata(session, qqid))
     })
 
@@ -947,7 +967,7 @@ export function apply(ctx: Context, config: Config) {
       if (match && match[1] != undefined) return match[1]
       else if (!isNaN(+userId)) return userId
     }
-    if (!isNaN(+userId)) qqid = await findQQidFromOpenId(await findOpenIdFromQQid(userId))
+    if (!isNaN(+userId)) return userId
     else qqid = await findQQidFromOpenId(userId)
     if (!qqid && noisy) session.send(initMessage(session))
     return qqid
@@ -967,11 +987,12 @@ export function apply(ctx: Context, config: Config) {
 
   async function isInitialized(session: Session, userId?: string): Promise<boolean> {
     if (session.onebot) return true
+    if (!userId) userId = session.userId
     if (!isNaN(+userId)) {
       let openId = findOpenIdFromQQid(userId)
       return !!openId
     }
-    let qqid = await getQQid(session, userId)
+    let qqid = await findQQidFromOpenId(userId)
     return !!qqid
   }
 
@@ -1035,7 +1056,7 @@ export function apply(ctx: Context, config: Config) {
     const now = new Date()
     const fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.json`
     try {
-      const playersData = await ctx.database.get('players', {}, ['qid', 'licence', 'playRoutes', 'techs', 'group', 'cachedName'])
+      const playersData = await ctx.database.get('players', {})
       const jsonContent = JSON.stringify(playersData, null, 2)
       await fs.writeFile(path.join(filePath, 'backup', fileName), jsonContent)
       session.send(`备份文件已保存至 ${fileName}`)
