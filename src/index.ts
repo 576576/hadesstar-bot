@@ -967,6 +967,10 @@ export function apply(ctx: Context, config: Config) {
 
   async function isInitialized(session: Session, userId?: string): Promise<boolean> {
     if (session.onebot) return true
+    if (!isNaN(+userId)) {
+      let openId = findOpenIdFromQQid(userId)
+      return !!openId
+    }
     let qqid = await getQQid(session, userId)
     return !!qqid
   }
