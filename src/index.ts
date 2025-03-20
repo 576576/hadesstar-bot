@@ -256,7 +256,6 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('message', async (session) => {
 
     console.log(`\n${session.userId}: ${session.content}`)
-    console.log(config.menuCX)
 
     //骚话模块
     saohuaTalk(session)
@@ -294,7 +293,7 @@ export function apply(ctx: Context, config: Config) {
         await ctx.database.remove('elines', { qid: qqid })
         await ctx.database.remove('erank', { qid: qqid })
       } catch (error) {
-        console.log(`error:重置${userId}数据`)
+        session.send(`重置${userId}数据失败`)
       }
       session.send(`-\n已重置${userId}数据`)
     })
@@ -529,7 +528,7 @@ export function apply(ctx: Context, config: Config) {
         await session.send('请输入正确车牌D7-12,或D6以撤销车牌')
         return
       }
-      console.log(`${qqid}:正在获取D${licenceNum}车牌`)
+      console.log(`${qqid}: 获取了D${licenceNum}车牌`)
       await ctx.database.upsert('players', () => [{ qid: qqid, licence: licenceNum }])
       await session.send(`已授予${await getUserName(session, qqid)} D${licenceNum}车牌`)
     })
@@ -741,7 +740,7 @@ export function apply(ctx: Context, config: Config) {
     let qqid = await getQQid(session, undefined, true)
     if (!qqid) return
 
-    console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
+    console.log(`\n${qqid}: 尝试加入HS${joinType}队伍`)
     //检查车牌
     let lineLevel = +joinType
     let licence = await getLicence(qqid)
@@ -902,7 +901,6 @@ export function apply(ctx: Context, config: Config) {
       if (!playerId) return session.author.nick
       return (await session.onebot.getGroupMemberInfo(session.guildId, playerId)).nickname
     }
-    console.log(playerId)
     let qqid = await getQQid(session, playerId)
     if (!qqid) return null
     let playerName = (await ctx.database.get('players', { qid: playerId }, ['cachedName']))[0].cachedName
