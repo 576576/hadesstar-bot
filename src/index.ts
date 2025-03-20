@@ -170,7 +170,7 @@ export function apply(ctx: Context, config: Config) {
     })
   }
 
-  function initDrsLines(){
+  function initDrsLines() {
     ctx.model.extend('dlines', {
       qid: {
         type: 'string',
@@ -298,7 +298,7 @@ export function apply(ctx: Context, config: Config) {
       session.send(`-\n已重置${userId}数据`)
     })
 
-    ctx.command('XFDR','清空队列')
+  ctx.command('XFDR', '清空队列')
     .action(async ({ session }) => {
       if (!(await isSuper(session))) {
         session.send('无红名单权限')
@@ -334,7 +334,7 @@ export function apply(ctx: Context, config: Config) {
       }
       if (!openId) openId = session.userId
       console.log(`${openId}: 绑定了${qid}`)
-      await ctx.database.upsert('players', () => [{ qid: qid, openId: openId}])
+      await ctx.database.upsert('players', () => [{ qid: qid, openId: openId }])
       session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
     })
 
@@ -1052,7 +1052,7 @@ export function apply(ctx: Context, config: Config) {
   async function generateBackup(session: Session, filePath: string): Promise<void> {
     await fs.mkdir(root, { recursive: true })
     const now = new Date()
-    const fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.json`
+    const fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}.json`
     try {
       const playersData = await ctx.database.get('players', {})
       const jsonContent = JSON.stringify(playersData, null, 2)
