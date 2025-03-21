@@ -551,7 +551,7 @@ export function apply(ctx: Context, config: Config) {
       }
       let einfo = await record_event(session, +qqid, runScore)
       if (!!einfo) {
-        session.send(`-\n${await getUserName(session, qqid)} 补录红活成功\n————————————\n╔ 本轮等级: HS6\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`-\n${await getUserName(session, qqid)} 补录红活成功\n————————————\n╔ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
       else session.send('补录失败')
     })
@@ -616,7 +616,7 @@ export function apply(ctx: Context, config: Config) {
 
     //检查是否可以排队
     if (await validate([
-      () => (!config.event.enabled && (session.send(`红活未开启,禁止加入`), true)),
+      () => (!valid_drs(lineLevel) && (session.send(`暗红星等级为7-12,请输入正确等级`), true)),
       () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`), true)),
       () => (player.cachedName == '使用LR名字录入' && (session.send('请先录入游戏名\n例: LR名字 高语放歌'), true))
     ])) return
@@ -634,7 +634,7 @@ export function apply(ctx: Context, config: Config) {
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
       let lineMax = joinType.at(0) == 'K' ? 2 : 3
-      var drs_msg = `${session.onebot ? session.author.nick : ''} 成功加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
+      var drs_msg = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
 
       //发车
       if (lineNum >= lineMax) {
@@ -681,7 +681,7 @@ export function apply(ctx: Context, config: Config) {
     }
     let qqid = await getQQid(session)
 
-    let lineLevel = +joinType.substring(1)
+    let lineLevel = +joinType.substring(2)
     let lineType = joinType.substring(0, 2)
     if (isNaN(lineLevel)) {
       try {
@@ -709,17 +709,15 @@ export function apply(ctx: Context, config: Config) {
     //开始红活单刷
     let foundType = await findDrsFromId(session, qqid)
     if (!foundType) {
-      await ctx.database.create('elines', { qid: qqid, lineType: joinType })
-      let dinfo = await ctx.database.get('elines', { qid: qqid }, ['lineId', 'runScore'])
-      let lineNum = dinfo.length
-      let lineId = dinfo[dinfo.length - 1].lineId + 1000
+      let dinfo = await ctx.database.create('elines', { qid: qqid, lineType: joinType })
+      let einfo = await getEventInfo(qqid)
+      let lineId = dinfo[0].lineId + 1000
       let eventScore = 0
       let playerGroup = await getGroup(qqid)
-      let einfo = await getEventInfo(qqid)
       if (dinfo && einfo) eventScore = einfo.totalScore
-      var drs_message = `${session.onebot ? session.author.nick : ''} 加入HS${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${lineNum}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
+      var drs_message = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
       await session.send(drs_message)
-      return dinfo[dinfo.length - 1].lineId
+      return dinfo[0].lineId
     }
     else {
       await quit_drs(session)
@@ -731,7 +729,7 @@ export function apply(ctx: Context, config: Config) {
     let qqid = await getQQid(session), einfo: RsEventLines[], lineId = lineId_score_playerId
     if (!qqid) return
 
-    if (lineId_score_playerId > 4e3 && !score) {
+    if (lineId_score_playerId > 4e3 && !score || isNaN(score)) {
       score = lineId_score_playerId
       einfo = await ctx.database.get('elines', { runScore: { $lte: 1 } })
       if (!einfo[0]) {
@@ -740,20 +738,24 @@ export function apply(ctx: Context, config: Config) {
       }
       lineId = einfo[0].lineId
     }
-    else if (lineId_score_playerId > 8e6 && !!score) {
+    else if (lineId_score_playerId > 8e6 && !isNaN(score)) {
       //管理员直接录入红活
       qqid = await getQQid(session, String(lineId_score_playerId))
       einfo = [(await ctx.database.create('elines', { qid: qqid, lineType: 'SP12', runScore: score }))]
+      lineId = einfo[0].lineId
     }
-    else {
-      einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId_score_playerId })
+    else if (isNaN(lineId_score_playerId) && !isNaN(score)) {
+      einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId_score_playerId - 1000 })
       if (!einfo[0]) {
         session.send('未检索到红活队列,不可录入')
         return null
       }
     }
+    else {
+      session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数\n(或) LRHH 红活分数')
+    }
     if (einfo[0].runScore != 0) {
-      session.sendQueued(`队列${lineId}不可重复录入`)
+      session.send(`队列${lineId}不可重复录入`)
       return null
     }
 
@@ -761,7 +763,7 @@ export function apply(ctx: Context, config: Config) {
     let scoreAfter = einfo[0].runScore + score
     await ctx.database.upsert('elines', (row) => [{ qid: qqid, lineId: lineId, runScore: scoreAfter }])
     let runAfter = (await ctx.database.get('erank', { qid: qqid }))[0].totalRuns
-    return { totalRuns: runAfter, totalScore: scoreAfter, lineLevel: `HS${einfo[0].lineType}` }
+    return { totalRuns: runAfter, totalScore: scoreAfter, lineLevel: einfo[0].lineType }
   }
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
