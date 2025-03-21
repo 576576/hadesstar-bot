@@ -885,7 +885,7 @@ export function apply(ctx: Context, config: Config) {
 
   async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
     let isInit = await init_status(session, playerId)
-    if (!isInit) return '未检索到玩家信息'
+    if (!isInit) return '未检索到玩家信息\n或玩家未初始化'
     let player = (await getUserInfo(playerId))[0]
     if (!player) return '未检索到玩家信息'
     let playerTech = style_tech(player.techs)
