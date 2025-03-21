@@ -355,29 +355,7 @@ export function apply(ctx: Context, config: Config) {
     .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
     .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
     .action(async ({ session }, arg) => {
-      let isInit = await init_status(session)
-      if (!isInit) {
-        session.send(init_msg(session))
-        return
-      }
-      if (!config.event.enabled) {
-        session.send('红活未开启,禁止加入')
-        return
-      }
-      if (arg == undefined) {
-        let qqid = await getQQid(session)
-        try {
-          arg = '' + (await ctx.database.get('players', { qid: qqid }))[0].latestLine
-        } catch (error) {
-          await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
-          return
-        }
-      }
-      if (valid_drs(+arg) || arg == '6') {
-        await join_rs_event(session, arg)
-        return
-      }
-      session.send('请输入正确队列数字6-12')
+      await join_rs_event(session, `HS${arg}`)
     })
 
   ctx.command('TC', '退出所有列队')
@@ -542,24 +520,23 @@ export function apply(ctx: Context, config: Config) {
       session.send(`${head_msg(session)}玩家: ${playerName}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 当前总分: ${einfo.totalScore}\n╚ 当前排行: ${eventOrder}${config.event.enabled ? '' : '\n——————————\n历史数据(红活未开启)'}`)
     })
 
-  ctx.command('LRHH <lineNum> <eScore>', '录入红活分数')
-    .action(async ({ session }, lineNum, eScore) => {
-      let runScore = Number.parseInt(eScore)
+  ctx.command('LRHH <lineNum_or_score> <score>', '录入红活分数')
+    .action(async ({ session }, lineNum_or_score, score?) => {
 
       if (await validate([
         () => (!config.event.enabled && (session.send('红活已关闭,禁止录入'), true)),
-        () => (isNaN(+lineNum) || isNaN(runScore) && (session.send(`录入失败, 请检查指令\nLRHH 红活号码 红活分数`), true)),
-        () => (runScore > 99999 && (session.send('录入失败, 分数异常过高'), true))
+        () => (isNaN(+lineNum_or_score) && (session.send(`录入失败, 请检查指令\nLRHH 红活号码 红活分数`), true)),
+        () => (+lineNum_or_score > 9e4 || +score > 9e4 && (session.send('录入失败, 分数异常过高'), true))
       ])) return
 
-      let einfo = await updateEventScore(session, +lineNum, runScore)
+      let einfo = await record_event(session, +lineNum_or_score, +score)
       if (einfo) {
-        session.send(`红活录入成功\n————————————\n╔ 车队序号: ${+lineNum}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`红活录入成功\n————————————\n╔ 车队序号: ${+lineNum_or_score}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 本轮分数: ${+score}\n╚ 当前总分: ${einfo.totalScore}`)
       }
     })
 
-  ctx.command('LH <eScore> <userId>', '管理补录红活分数')
-    .action(async ({ session }, userId, eScore) => {
+  ctx.command('LH <userId> <score>', '管理补录红活分数')
+    .action(async ({ session }, userId, score) => {
       if (!(await isSuper(session))) {
         session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数')
         return
@@ -567,16 +544,16 @@ export function apply(ctx: Context, config: Config) {
       let qqid = await getQQid(session, userId)
       if (!qqid) return
 
-      let runScore = Number.parseInt(eScore)
+      let runScore = Number.parseInt(score)
       if (isNaN(runScore)) {
         session.send('录入失败, 请检查指令\nLH 玩家id 红活分数')
         return
       }
-      let lineId = await join_rs_event(session, '6')
-      let einfo = await updateEventScore(session, lineId, runScore, qqid)
-      if (einfo != null) {
-        session.send(`-\n${await getUserName(session, qqid)} 补录红活成功\n————————————\n╔ 车队序号: ${lineId}\n╠ 本轮等级: HS6\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+      let einfo = await record_event(session, +qqid, runScore)
+      if (!!einfo) {
+        session.send(`-\n${await getUserName(session, qqid)} 补录红活成功\n————————————\n╔ 本轮等级: HS6\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
+      else session.send('补录失败')
     })
 
   ctx.command('CZHH', '重置红活')
@@ -620,19 +597,17 @@ export function apply(ctx: Context, config: Config) {
     }
     let qqid = await getQQid(session)
 
-    if (joinType == 'D' || joinType == 'K') {
+    let lineLevel = +joinType.substring(1)
+    let lineType = joinType.substring(0, 1)
+    if (isNaN(lineLevel)) {
       try {
-        joinType += (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        joinType = `${lineType}${lineLevel}`
       } catch (error) {
         await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
         session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/D 或/K 一键快捷排队')
         return
       }
-    }
-    let lineLevel = (+joinType.substring(1))
-    if (!valid_drs(lineLevel)) {
-      session.send('加入错误,暗红星等级为7-12')
-      return
     }
 
     console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
@@ -641,6 +616,7 @@ export function apply(ctx: Context, config: Config) {
 
     //检查是否可以排队
     if (await validate([
+      () => (!config.event.enabled && (session.send(`红活未开启,禁止加入`), true)),
       () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`), true)),
       () => (player.cachedName == '使用LR名字录入' && (session.send('请先录入游戏名\n例: LR名字 高语放歌'), true))
     ])) return
@@ -705,28 +681,28 @@ export function apply(ctx: Context, config: Config) {
     }
     let qqid = await getQQid(session)
 
-    if (!joinType) {
+    let lineLevel = +joinType.substring(1)
+    let lineType = joinType.substring(0, 2)
+    if (isNaN(lineLevel)) {
       try {
-        joinType += (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        joinType = `${lineType}${lineLevel}`
       } catch (error) {
         await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
         session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/HS 一键快捷排队')
         return
       }
     }
-    let lineLevel = +joinType
-    if (!valid_drs(lineLevel)) {
-      session.send('加入错误,暗红星等级为7-12')
-      return
-    }
 
     let player = (await getUserInfo(qqid))[0]
 
-    console.log(`\n${qqid}: 尝试加入HS${joinType}队伍`)
+    console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
 
     //检查是否可以排队
     if (await validate([
-      () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`)), true),
+      () => (!config.event.enabled && (session.send(`红活未开启,禁止加入`), true)),
+      () => (!valid_drs(lineLevel) && (session.send(`暗红星等级为7-12,请输入正确等级`), true)),
+      () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`), true)),
       () => (player.cachedName == '使用LR名字录入' && (session.send('请先录入游戏名\n例: LR名字 高语放歌'), true))
     ])) return
 
@@ -751,22 +727,37 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  async function updateEventScore(session: Session, lineId_in: number, score: number, playerId?: string): Promise<{ totalRuns: number, totalScore: number, lineLevel: string }> {
-    let qqid: string, lineId = lineId_in - 1000
-    if (playerId) qqid = playerId
-    else qqid = await getQQid(session)
+  async function record_event(session: Session, lineId_score_playerId: number, score?: number): Promise<{ totalRuns: number, totalScore: number, lineLevel: string }> {
+    let qqid = await getQQid(session), einfo: RsEventLines[], lineId = lineId_score_playerId
     if (!qqid) return
 
-    let einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId })
-    if (einfo[0] == undefined && playerId == undefined) {
-      session.sendQueued('你不能录入别人的队列')
-      return null
+    if (lineId_score_playerId > 4e3 && !score) {
+      score = lineId_score_playerId
+      einfo = await ctx.database.get('elines', { runScore: { $lte: 1 } })
+      if (!einfo[0]) {
+        session.send('未检索到红活队列,不可录入')
+        return null
+      }
+      lineId = einfo[0].lineId
     }
-    if (einfo[0].runScore != 0 && playerId == undefined) {
+    else if (lineId_score_playerId > 8e6 && !!score) {
+      //管理员直接录入红活
+      qqid = await getQQid(session, String(lineId_score_playerId))
+      einfo = [(await ctx.database.create('elines', { qid: qqid, lineType: 'SP12', runScore: score }))]
+    }
+    else {
+      einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId_score_playerId })
+      if (!einfo[0]) {
+        session.send('未检索到红活队列,不可录入')
+        return null
+      }
+    }
+    if (einfo[0].runScore != 0) {
       session.sendQueued(`队列${lineId}不可重复录入`)
       return null
     }
-    await ctx.database.upsert('erank', (row) => [{ qid: qqid, totalRuns: $.add(row.totalRuns, playerId == undefined ? 1 : 0), totalScore: $.add(row.totalScore, score) }])
+
+    await ctx.database.upsert('erank', (row) => [{ qid: qqid, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
     let scoreAfter = einfo[0].runScore + score
     await ctx.database.upsert('elines', (row) => [{ qid: qqid, lineId: lineId, runScore: scoreAfter }])
     let runAfter = (await ctx.database.get('erank', { qid: qqid }))[0].totalRuns
