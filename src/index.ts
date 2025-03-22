@@ -569,13 +569,15 @@ export function apply(ctx: Context, config: Config) {
       initRsEventTables()
     })
 
-  ctx.command('备份', '生成备份')
-    .action(async ({ session }) => {
+  ctx.command('备份 [fileName]', '生成备份')
+    .action(async ({ session }, fileName) => {
       if (!(await isSuper(session))) {
         session.send('无红名单权限')
         return
       }
-      await generateBackup(session, root)
+      const now = new Date()
+      if (!fileName) fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}.json`
+      await generateBackup(session, path.join(root, 'backup'), fileName)
     })
 
   ctx.command('恢复备份 <fileName>', '恢复备份')
@@ -1002,14 +1004,12 @@ export function apply(ctx: Context, config: Config) {
     await session.sendQueued(saohua[Math.floor(Math.random() * saohua.length)])
   }
 
-  async function generateBackup(session: Session, filePath: string): Promise<void> {
-    await fs.mkdir(root, { recursive: true })
-    const now = new Date()
-    const fileName = `备份${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}.json`
+  async function generateBackup(session: Session, filePath: string, fileName: string): Promise<void> {
     try {
+      const fullPath = path.join(filePath, fileName)
       const playersData = await ctx.database.get('players', {})
       const jsonContent = JSON.stringify(playersData, null, 2)
-      await fs.writeFile(path.join(filePath, 'backup', fileName), jsonContent)
+      await fs.writeFile(fullPath, jsonContent)
       session.send(`备份文件已保存至 ${fileName}`)
     } catch (error) {
       session.send(`备份操作失败`)
@@ -1019,11 +1019,9 @@ export function apply(ctx: Context, config: Config) {
   async function importBackup(session: Session, filePath: string, fileName: string): Promise<void> {
     try {
       const fullPath = path.join(filePath, fileName)
-      const fileContent = await fs.readFile(fullPath, 'utf-8')
-      const playersData = JSON.parse(fileContent)
-
+      const jsonContent = await fs.readFile(fullPath, 'utf-8')
+      const playersData = JSON.parse(jsonContent)
       await ctx.database.upsert('players', playersData)
-
       session.send(`成功恢复 ${playersData.length} 条记录`)
     } catch (error) {
       session.send(`备份恢复失败,已尝试回滚`)
