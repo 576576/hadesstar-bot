@@ -135,7 +135,7 @@ export function apply(ctx: Context, config: Config) {
       },
       cachedName: {
         type: 'string',
-        initial: `使用LR名字录入`,
+        initial: null,
         nullable: false,
       },
       licence: {
@@ -156,7 +156,7 @@ export function apply(ctx: Context, config: Config) {
       },
       group: {
         type: 'string',
-        initial: '无集团',
+        initial: null,
         nullable: false,
       },
       latestLine: {
@@ -616,11 +616,11 @@ export function apply(ctx: Context, config: Config) {
     let player = (await getUserInfo(qqid))[0]
 
     //检查是否可以排队
-    let check_msg: string
+    let check_msg = head_msg(session)
     if (await validate([
       () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
       () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
-      () => (player.cachedName == '使用LR名字录入' && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
+      () => (player.cachedName == null && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
     ])) {
       check_msg.replace(/\n+$/, '')
       session.send(check_msg)
@@ -629,11 +629,12 @@ export function apply(ctx: Context, config: Config) {
 
     //严格模式检查更多的信息
     if (config.strictMode && await validate_all([
-      () => (player.group == '无集团' && (check_msg += '请先录入集团\n例: LR集团 巨蛇座', true)),
-      () => (player.techs.every(t => !t) && (check_msg += '请先录入科技\n例: LR科技 创1富2延3强4', true))
+      () => (player.group == null && (check_msg += '请先录入集团\n例: LR集团 巨蛇座\n', true)),
+      () => (player.techs.every(t => !t) && (check_msg += '请先录入科技\n例: LR科技 创1富2延3强4\n', true))
     ])) {
-      check_msg += '管理员已启用严格模式,请先检查以上信息'
+      check_msg += '管理员已启用严格模式,信息不全禁止排队'
       check_msg.replace(/\n+$/, '')
+      session.send(check_msg)
       return null
     }
 
@@ -714,7 +715,7 @@ export function apply(ctx: Context, config: Config) {
       () => (!config.event.enabled && (check_msg += `红活未开启,禁止加入\n`, true)),
       () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
       () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
-      () => (player.cachedName == '使用LR名字录入' && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
+      () => (player.cachedName == null && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
     ])) {
       check_msg.replace(/\n+$/, '')
       session.send(check_msg)
