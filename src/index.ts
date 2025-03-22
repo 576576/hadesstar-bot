@@ -53,10 +53,10 @@ export const Config: Schema<Config> = Schema.object({
     Schema.object({}).description('红活模块配置'),
     Schema.union([
       Schema.object({
-        enabled: Schema.boolean().description('开启红活').default(false).hidden(),
+        enabled: Schema.boolean().description('开启红活').hidden(),
         name: Schema.string().description('红活名称').default(''),
         cool: Schema.number().description('红活加入冷却').default(3e5),
-        minScore: Schema.number().description('红活最低分数').default(5e4),
+        minScore: Schema.number().description('红活最低分数').default(1e4),
       }),
       Schema.object({}),
     ])
@@ -117,6 +117,8 @@ export interface RsEventRanking {
 
 export function apply(ctx: Context, config: Config) {
 
+  if (config.event.enabled === undefined) config.event.enabled = false
+
   const root = path.join(ctx.baseDir, 'data', name)
 
   initPlayerTable()
@@ -138,7 +140,7 @@ export function apply(ctx: Context, config: Config) {
       },
       cachedName: {
         type: 'string',
-        initial: null,
+        initial: '',
         nullable: false,
       },
       licence: {
@@ -205,7 +207,7 @@ export function apply(ctx: Context, config: Config) {
       qid: {
         type: 'string',
         length: 18,
-        initial: null,
+        initial: '0',
         nullable: false,
       },
       runScore: {
@@ -234,6 +236,7 @@ export function apply(ctx: Context, config: Config) {
       primary: 'lineId',
       autoInc: true,
     })
+    ctx.database.upsert('elines', [{ lineId: 999 }]) //令lineId从1000开始
 
     // 初始化表erank
     ctx.model.extend('erank', {
@@ -509,7 +512,7 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       let einfos = (await ctx.database.select('erank').where(row => $.gt(row.totalScore, config.event.minScore)).orderBy(row => row.totalScore, 'desc').execute())
-      if (einfos[0] == undefined) {
+      if (!einfos[0]) {
         await session.sendQueued('未检索到红活排行信息')
         return
       }
@@ -588,7 +591,7 @@ export function apply(ctx: Context, config: Config) {
         session.send('无红名单权限')
         return
       }
-      session.send(`红活数据已${config.event.enabled ? '关闭并' : ''}重置`)
+      session.send(`红活${config.event.enabled ? '已关闭并' : '数据已'}重置`)
       config.event.enabled = false
       await drop_table('elines')
       await drop_table('erank')
@@ -763,7 +766,7 @@ export function apply(ctx: Context, config: Config) {
     else if (!isNaN(lineId) && isNaN(score)) {
       //缺省队列号模式
       score = lineId_score_playerId
-      einfo = await ctx.database.get('elines', { runScore: { $lte: 1 } })
+      einfo = await ctx.database.get('elines', { qid: qqid, runScore: { $lte: 1 } })
       if (!einfo[0]) {
         session.send('未检索到红活队列,不可录入')
         return null
@@ -774,7 +777,7 @@ export function apply(ctx: Context, config: Config) {
       //正常录入模式
       einfo = await ctx.database.get('elines', { lineId: lineId })
       if (!einfo[0]) {
-        session.send('未检索到红活队列,不可录入')
+        session.send('未检索到红活队列,不可录入\n或多人红活组队不支持缺省队伍号录入')
         return null
       }
       if (einfo[0].qid != qqid && !einfo[0].partners.includes(qqid)) {
@@ -797,9 +800,9 @@ export function apply(ctx: Context, config: Config) {
         pInfo.push({ qid: partner, lineId: lineId, runScore: score })
       }
     }
-    pInfo.push({ qid: qqid, lineId: lineId, runScore: score })
+    pInfo.push({ qid: einfo[0].qid, lineId: lineId, runScore: score })
 
-    await ctx.database.upsert('erank', (row) => [{ qid: qqid, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
+    await ctx.database.upsert('erank', (row) => [{ qid: einfo[0].qid, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
     if (!!einfo[0].partners) {
       for (const partner of einfo[0].partners) {
         await ctx.database.upsert('erank', (row) => [{ qid: partner, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
@@ -837,7 +840,7 @@ export function apply(ctx: Context, config: Config) {
     return foundTimeList
   }
 
-  const format_time = async (ms: number) =>
+  const format_time = (ms: number) =>
     `⏱️${Math.floor(ms / 6e4)}:${Math.floor((ms % 6e4) / 1e3).toString().padStart(2, '0')} `
 
   async function findDrsFromId(session: Session, playerId: string): Promise<string> {
@@ -876,7 +879,7 @@ export function apply(ctx: Context, config: Config) {
 
   async function drs_player_info(session: Session, playerId: string, detail: boolean = true, lineLevel?: number): Promise<string> {
     let isInit = await init_status(session, playerId)
-    if (!isInit) return '未检索到玩家信息\n或玩家未初始化'
+    if (!isInit || !playerId) return '未检索到玩家信息\n或玩家未初始化'
     let player = (await getUserInfo(playerId))[0]
     if (!player) return '未检索到玩家信息'
     let playerTech = style_tech(player.techs)
@@ -971,8 +974,8 @@ export function apply(ctx: Context, config: Config) {
     return tmp
   }
 
-  async function event_timer(playerId: string): Promise<string> {
-    return await format_time(event_cool[playerId] - Date.now())
+  function event_timer(playerId: string): string {
+    return format_time(event_cool[playerId] - Date.now())
   }
 
   async function drop_table(tableName: any): Promise<void> {
