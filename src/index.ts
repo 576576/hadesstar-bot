@@ -12,7 +12,7 @@ export interface Config {
   drsWaitTime: number
   strictMode: boolean
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
-  event: { enabled?: boolean, name?: string, minScore?: number }
+  event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
   menuCX: MenuCX
 }
 
@@ -24,6 +24,7 @@ enum MenuCX {
   QQ_ID = 1 << 4,
   OPEN_ID = 1 << 5,
 }
+const event_cool: { [key: string]: number } = {}
 
 export const Config: Schema<Config> = Schema.object({
   strictMode: Schema.boolean().default(false).description('严格模式: 未录入名字/集团/科技不可排队'),
@@ -54,7 +55,8 @@ export const Config: Schema<Config> = Schema.object({
       Schema.object({
         enabled: Schema.boolean().description('开启红活').default(false).hidden(),
         name: Schema.string().description('红活名称').default(''),
-        minScore: Schema.number().description('红活最低分数').default(0),
+        cool: Schema.number().description('红活加入冷却').default(3e5),
+        minScore: Schema.number().description('红活最低分数').default(5e4),
       }),
       Schema.object({}),
     ])
@@ -105,6 +107,7 @@ export interface RsEventLines {
   runScore: number
   lineId: number
   lineType: string
+  partners: string[]
 }
 export interface RsEventRanking {
   qid: string
@@ -202,7 +205,7 @@ export function apply(ctx: Context, config: Config) {
       qid: {
         type: 'string',
         length: 18,
-        initial: '0',
+        initial: null,
         nullable: false,
       },
       runScore: {
@@ -219,9 +222,14 @@ export function apply(ctx: Context, config: Config) {
       },
       lineId: {
         type: 'integer',
-        initial: 0,
+        initial: 1000,
         nullable: false,
       },
+      partners: {
+        type: 'array',
+        initial: [],
+        nullable: false,
+      }
     }, {
       primary: 'lineId',
       autoInc: true,
@@ -269,8 +277,8 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       // 重置players及dlines
-      drop_table('players')
-      drop_table('dlines')
+      await drop_table('players')
+      await drop_table('dlines')
       initPlayerTable()
       initDrsLines()
       session.send('已重置所有玩家数据')
@@ -304,7 +312,7 @@ export function apply(ctx: Context, config: Config) {
         session.send('无红名单权限')
         return
       }
-      drop_table('dlines')
+      await drop_table('dlines')
       initDrsLines()
       session.send('已清除所有队列')
     })
@@ -338,29 +346,46 @@ export function apply(ctx: Context, config: Config) {
       session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
     })
 
+  ctx.command('PD <arg>', '通用排队指令')
+    .action(async ({ session }, arg) => {
+      await join_rs(session, arg)
+    })
+
   ctx.command('D <arg>', '加入三人组队')
     .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
     .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
     .alias('D6', { args: ['6'] }).alias('K6', { args: ['6'] }).alias('HS6', { args: ['6'] })
     .action(async ({ session }, arg) => {
-      await join_drs(session, `D${arg}`)
+      await join_rs(session, `D${(arg || '')}`)
     })
   ctx.command('K <arg>', '加入双人组队')
     .alias('K7', { args: ['7'] }).alias('K8', { args: ['8'] }).alias('K9', { args: ['9'] })
     .alias('K10', { args: ['10'] }).alias('K11', { args: ['11'] }).alias('K12', { args: ['12'] })
     .action(async ({ session }, arg) => {
-      await join_drs(session, `K${arg}`)
+      await join_rs(session, `K${(arg || '')}`)
     })
   ctx.command('HS <arg>', '加入单人红活')
     .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
     .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
     .action(async ({ session }, arg) => {
-      await join_rs_event(session, `HS${arg}`)
+      await join_rs(session, `HS${(arg || '')}`)
+    })
+  ctx.command('HK <arg>', '加入双人红活')
+    .alias('HK7', { args: ['7'] }).alias('HK8', { args: ['8'] }).alias('HK9', { args: ['9'] })
+    .alias('HK10', { args: ['10'] }).alias('HK11', { args: ['11'] }).alias('HK12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      await join_rs(session, `HK${(arg || '')}`)
+    })
+  ctx.command('HD <arg>', '加入三人红活')
+    .alias('HD7', { args: ['7'] }).alias('HD8', { args: ['8'] }).alias('HD9', { args: ['9'] })
+    .alias('HD10', { args: ['10'] }).alias('HD11', { args: ['11'] }).alias('HD12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      await join_rs(session, `HD${(arg || '')}`)
     })
 
   ctx.command('TC', '退出所有列队')
     .action(async ({ session }) => {
-      await quit_drs(session)
+      await quit_rs(session)
     })
 
   ctx.command('CK [arg]', '查询排队情况')
@@ -376,7 +401,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('CX [userId]', '查询玩家信息')
     .action(async ({ session }, userId) => {
       let qqid = await getQQid(session, userId)
-      session.send(await formatted_playerdata(session, qqid))
+      session.send(await drs_player_info(session, qqid))
     })
 
   //更新玩家信息
@@ -496,6 +521,7 @@ export function apply(ctx: Context, config: Config) {
       for (var i of tmp) {
         await session.sendQueued(i)
       }
+      await session.sendQueued(`${head_msg(session) + config.event.minScore}分以下的已被过滤`)
     })
 
   ctx.command('CXHH [userId]', '查询红活分数')
@@ -511,7 +537,7 @@ export function apply(ctx: Context, config: Config) {
       }
       let eventOrder = einfos.findIndex(rsRank => rsRank.qid == qqid) + 1
 
-      let einfo = await getEventInfo(qqid)
+      let einfo = await getRankInfo(qqid)
       if (!einfo) {
         session.send('未检索到玩家红活信息')
         return
@@ -531,7 +557,7 @@ export function apply(ctx: Context, config: Config) {
 
       let einfo = await record_event(session, +lineNum_or_score, +score)
       if (einfo) {
-        session.send(`红活录入成功\n————————————\n╔ 车队序号: ${+lineNum_or_score}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 本轮分数: ${+score}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`红活录入成功\n————————————\n╔ 车队序号: ${einfo.lineId}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${einfo.runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
     })
 
@@ -564,8 +590,8 @@ export function apply(ctx: Context, config: Config) {
       }
       session.send(`红活数据已${config.event.enabled ? '关闭并' : ''}重置`)
       config.event.enabled = false
-      drop_table('elines')
-      drop_table('erank')
+      await drop_table('elines')
+      await drop_table('erank')
       initRsEventTables()
     })
 
@@ -591,7 +617,7 @@ export function apply(ctx: Context, config: Config) {
 
   console.clear()
 
-  async function join_drs(session: Session, joinType: string, isEvent: boolean = false): Promise<number> {
+  async function join_rs(session: Session, joinType: string): Promise<number> {
     let isInit = await init_status(session)
     if (!isInit) {
       session.send(init_msg(session))
@@ -599,14 +625,17 @@ export function apply(ctx: Context, config: Config) {
     }
     let qqid = await getQQid(session)
 
-    let lineType = joinType.at(0), lineLevel = +joinType.substring(1)
-    if (isNaN(lineLevel)) {
+    let joinInfo = parseJoinType(joinType), lineId: number
+    console.log(joinInfo)
+    if (!joinInfo || joinInfo.lineCapacity <= 0) return
+    const lineMax = joinInfo.lineCapacity
+    if (!joinInfo.lineLevel) {
       try {
-        lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
-        joinType = `${lineType}${lineLevel}`
+        joinInfo.lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
+        joinType = joinInfo.lineType + joinInfo.lineLevel
       } catch (error) {
         await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
-        session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/D 或/K 一键快捷排队')
+        session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/D 一键快捷排队')
         return null
       }
     }
@@ -618,61 +647,88 @@ export function apply(ctx: Context, config: Config) {
     //检查是否可以排队
     let check_msg = head_msg(session)
     if (await validate([
-      () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
-      () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
+      () => (!valid_drs(joinInfo.lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
+      () => (player.licence < joinInfo.lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
       () => (player.cachedName == null && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
     ])) {
-      check_msg.replace(/\n+$/, '')
-      session.send(check_msg)
+      session.send(check_msg.trim())
       return null
     }
 
-    //严格模式检查更多的信息
+    //严格模式检查更多信息
     if (config.strictMode && await validate_all([
       () => (player.group == null && (check_msg += '请先录入集团\n例: LR集团 巨蛇座\n', true)),
       () => (player.techs.every(t => !t) && (check_msg += '请先录入科技\n例: LR科技 创1富2延3强4\n', true))
     ])) {
       check_msg += '管理员已启用严格模式,信息不全禁止排队'
-      check_msg.replace(/\n+$/, '')
-      session.send(check_msg)
+      session.send(check_msg.trim())
       return null
     }
 
+    //红活模式检查更多信息
+    if (joinInfo.isEvent && await validate([
+      () => (!config.event.enabled && (check_msg += `红活未开启,禁止加入\n`, true)),
+      () => ((qqid in event_cool) && event_cool[qqid] > Date.now() && (check_msg += `红活加入冷却: ${event_timer(qqid)}\n`, true))
+    ])) {
+      session.send(check_msg.trim())
+      return null
+    }
+
+
+    //开始暗红星/红活队列
     let foundType = await findDrsFromId(session, qqid)
     let timer = await drs_timer(session, joinType)
     if (!foundType) {
+      let info_msg: string, drs_msg: string
+      if (lineMax == 1) {
+        drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${joinInfo.isEvent ? (await event_player_info(session, qqid, true)) : (await drs_player_info(session, qqid, false, joinInfo.lineLevel))}\n———————————\n`
+        if (joinInfo.isEvent)
+          lineId = await create_event_line([qqid], joinType)
+        await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+        if (joinInfo.isEvent)
+          await session.send(`${head_msg(session)}LRHH ${lineId} (分数)`)
+        return lineId
+      }
       await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType, waitDue: Date.now() + config.drsWaitTime }])
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
-      let lineMax = line_capa(lineType)
-      var drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
+      info_msg = joinInfo.isEvent ? (await event_players_info(session, joinType, true)) : (await drs_players_info(session, joinType, true))
+      drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍${format_dr_count(lineNum, lineMax)}\n———————————\n${info_msg}———————————\n`
 
       //发车
+      timer = await drs_timer(session, joinType)
       if (lineNum >= lineMax) {
-        drs_msg += end_msg(lineLevel)
+        if (!joinInfo.isEvent)
+          await session.send(drs_msg + end_msg(joinInfo.lineLevel))
+        else {
+          lineId = await create_event_line(dinfo, joinType)
+          await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+          await session.send(`${head_msg(session)}LRHH ${lineId} (分数)`)
+        }
+
         //发车后清空队伍并更新场次
-        for (const driverId of dinfo) {
-          let tmp = (await ctx.database.get('players', { qid: driverId }))[0].playRoutes
-          tmp[lineLevel - 7] += 1
-          await ctx.database.upsert('players', (row) => [{ qid: driverId, playRoutes: tmp, latestLine: lineLevel }])
+        for (const playerId of dinfo) {
+          let tmp = (await ctx.database.get('players', { qid: playerId }))[0].playRoutes
+          tmp[joinInfo.lineLevel - 7] += 1
+          await ctx.database.upsert('players', (row) => [{ qid: playerId, playRoutes: tmp, latestLine: joinInfo.lineLevel }])
         }
         await ctx.database.remove('dlines', { lineType: joinType })
       }
-      else drs_msg += timer
-      await session.send(drs_msg)
-      return
+      else await session.send(drs_msg + timer)
+      return lineId
     }
     else if (foundType == joinType) {
-      session.send(`你已在${joinType}队伍中\n———————————\n${await drs_players_info(session, joinType)}———————————\n${timer}`)
+      let info_msg = joinInfo.isEvent ? await event_players_info(session, joinType, true) : await drs_players_info(session, joinType, true)
+      session.send(`你已在${joinType}队伍中\n———————————\n${info_msg}———————————\n${timer}`)
     }
 
     else {
-      await quit_drs(session)
-      await join_drs(session, joinType)
+      await quit_rs(session)
+      await join_rs(session, joinType)
     }
   }
 
-  async function quit_drs(session: Session): Promise<void> {
+  async function quit_rs(session: Session): Promise<void> {
     let qqid = await getQQid(session, undefined, true)
     if (!qqid) return
 
@@ -684,69 +740,28 @@ export function apply(ctx: Context, config: Config) {
     else await session.send("你未在队伍中")
   }
 
-  async function join_rs_event(session: Session, joinType: string): Promise<number> {
-    let isInit = await init_status(session)
-    if (!isInit) {
-      session.send(init_msg(session))
-      return
-    }
-    let qqid = await getQQid(session)
-
-    let lineLevel = +joinType.substring(2)
-    let lineType = joinType.substring(0, 2)
-    if (isNaN(lineLevel)) {
-      try {
-        lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
-        joinType = `${lineType}${lineLevel}`
-      } catch (error) {
-        await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
-        session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/HS 一键快捷排队')
-        return
-      }
+  async function create_event_line(players: string[], joinType: string): Promise<number> {
+    let qqid = players[0], partners = players.slice(1)
+    let einfo = await ctx.database.create('elines', { qid: qqid, lineType: joinType, partners: partners })
+    for (const player of players) {
+      event_cool[player] = Date.now() + config.event.cool
     }
 
-    let player = (await getUserInfo(qqid))[0]
-
-    console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
-
-    //检查是否可以排队
-    let check_msg: string
-    if (await validate([
-      () => (!config.event.enabled && (check_msg += `红活未开启,禁止加入\n`, true)),
-      () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
-      () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
-      () => (player.cachedName == null && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
-    ])) {
-      check_msg.replace(/\n+$/, '')
-      session.send(check_msg)
-      return null
-    }
-
-    //开始红活队列
-    let foundType = await findDrsFromId(session, qqid)
-    let timer = await drs_timer(session, joinType)
-    if (!foundType) {
-      let dinfo = await ctx.database.create('elines', { qid: qqid, lineType: joinType })
-      let einfo = await getEventInfo(qqid)
-      let lineId = dinfo[0].lineId + 1000
-      let eventScore = 0
-      let playerGroup = await getGroup(qqid)
-      if (dinfo && einfo) eventScore = einfo.totalScore
-      var drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
-      await session.send(drs_msg)
-      return dinfo[0].lineId
-    }
-    else {
-      await quit_drs(session)
-      await join_rs_event(session, joinType)
-    }
+    return einfo.lineId
   }
 
-  async function record_event(session: Session, lineId_score_playerId: number, score?: number): Promise<{ totalRuns: number, totalScore: number, lineLevel: string }> {
+  async function record_event(session: Session, lineId_score_playerId: number, score?: number): Promise<{ totalRuns: number, totalScore: number, runScore: number, lineLevel: string, lineId: number }> {
     let qqid = await getQQid(session), einfo: RsEventLines[], lineId = lineId_score_playerId
     if (!qqid) return
 
-    if (lineId_score_playerId > 4e3 && !score || isNaN(score)) {
+    if (lineId_score_playerId > 8e6 && !isNaN(score) && isAdmin(session)) {
+      //管理员直接录入
+      qqid = await getQQid(session, '' + lineId_score_playerId)
+      einfo = [(await ctx.database.create('elines', { qid: qqid, lineType: 'HP12', runScore: score }))]
+      lineId = einfo[0].lineId
+    }
+    else if (!isNaN(lineId) && isNaN(score)) {
+      //缺省队列号模式
       score = lineId_score_playerId
       einfo = await ctx.database.get('elines', { runScore: { $lte: 1 } })
       if (!einfo[0]) {
@@ -755,32 +770,44 @@ export function apply(ctx: Context, config: Config) {
       }
       lineId = einfo[0].lineId
     }
-    else if (lineId_score_playerId > 8e6 && !isNaN(score)) {
-      //管理员直接录入红活
-      qqid = await getQQid(session, String(lineId_score_playerId))
-      einfo = [(await ctx.database.create('elines', { qid: qqid, lineType: 'SP12', runScore: score }))]
-      lineId = einfo[0].lineId
-    }
-    else if (isNaN(lineId_score_playerId) && !isNaN(score)) {
-      einfo = await ctx.database.get('elines', { qid: qqid, lineId: lineId_score_playerId - 1000 })
+    else if (!isNaN(lineId) && !isNaN(score)) {
+      //正常录入模式
+      einfo = await ctx.database.get('elines', { lineId: lineId })
       if (!einfo[0]) {
         session.send('未检索到红活队列,不可录入')
+        return null
+      }
+      if (einfo[0].qid != qqid && !einfo[0].partners.includes(qqid)) {
+        session.send('不可录入他人队列')
         return null
       }
     }
     else {
       session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数\n(或) LRHH 红活分数')
     }
-    if (einfo[0].runScore != 0) {
+
+    if (einfo[0].runScore != 0 && !isAdmin(session)) {
       session.send(`队列${lineId}不可重复录入`)
       return null
     }
+    let pInfo = []
+    if (!!einfo[0].partners) {
+      score = Math.ceil(score / (einfo[0].partners.length + 1))
+      for (const partner of einfo[0].partners) {
+        pInfo.push({ qid: partner, lineId: lineId, runScore: score })
+      }
+    }
+    pInfo.push({ qid: qqid, lineId: lineId, runScore: score })
 
     await ctx.database.upsert('erank', (row) => [{ qid: qqid, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
-    let scoreAfter = einfo[0].runScore + score
-    await ctx.database.upsert('elines', (row) => [{ qid: qqid, lineId: lineId, runScore: scoreAfter }])
-    let runAfter = (await ctx.database.get('erank', { qid: qqid }))[0].totalRuns
-    return { totalRuns: runAfter, totalScore: scoreAfter, lineLevel: einfo[0].lineType }
+    if (!!einfo[0].partners) {
+      for (const partner of einfo[0].partners) {
+        await ctx.database.upsert('erank', (row) => [{ qid: partner, totalRuns: $.add(row.totalRuns, 1), totalScore: $.add(row.totalScore, score) }])
+      }
+    }
+    await ctx.database.upsert('elines', pInfo)
+    let rinfo = (await ctx.database.get('erank', { qid: qqid }))[0]
+    return { totalRuns: rinfo.totalRuns, totalScore: rinfo.totalScore, runScore: score, lineLevel: einfo[0].lineType, lineId: lineId }
   }
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
@@ -804,11 +831,14 @@ export function apply(ctx: Context, config: Config) {
         await session.send(`${head_msg(session)}${await getUserName(session, element.qid)} 超时被踢出${dinfo[0].lineType}队列`)
         continue
       }
-      let formatted_time = `⏱️${Math.floor(waitTimeLeft / 6e4)}:${('' + Math.floor((waitTimeLeft % 6e4) / 1e3)).padStart(2, '0')} `
-      foundTimeList.push(formatted_time)
+      let timer = await format_time(waitTimeLeft)
+      foundTimeList.push(timer)
     }
     return foundTimeList
   }
+
+  const format_time = async (ms: number) =>
+    `⏱️${Math.floor(ms / 6e4)}:${Math.floor((ms % 6e4) / 1e3).toString().padStart(2, '0')} `
 
   async function findDrsFromId(session: Session, playerId: string): Promise<string> {
     let qqid = await getQQid(session, playerId)
@@ -831,11 +861,49 @@ export function apply(ctx: Context, config: Config) {
     return d_msg
   }
 
-  async function event_player_info(session: Session, playerId: string, isDetail?: boolean): Promise<string> {
+  async function event_players_info(session: Session, targetType: string, isTryAt?: boolean): Promise<string> {
+    let playersId = await findIdFromDrs(targetType)
+    if (!playersId.length) return `${targetType}队列为空`
+    let d_msg = '', player: Players, players = await getUserInfo(playersId), playerName: string
+    for (var i = 0; i < playersId.length; i++) {
+      player = players[i]
+      playerName = await getUserName(session, player.qid, isTryAt)
+      let einfo = await getRankInfo(player.qid)
+      d_msg += `${style_num(i + 1)}${playerName}\n  [${player.group}] ${einfo.totalRuns}\n  总分: ${einfo.totalScore}\n`
+    }
+    return d_msg
+  }
+
+  async function drs_player_info(session: Session, playerId: string, detail: boolean = true, lineLevel?: number): Promise<string> {
+    let isInit = await init_status(session, playerId)
+    if (!isInit) return '未检索到玩家信息\n或玩家未初始化'
     let player = (await getUserInfo(playerId))[0]
-    let einfo = await getEventInfo(playerId)
-    return isDetail ? `玩家: ${player.cachedName}\n╠ [${player.group}]\n╠ 总分: ${einfo.totalScore}\n╚ 场次: ${einfo.totalRuns}` :
-      `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
+    if (!player) return '未检索到玩家信息'
+    let playerTech = style_tech(player.techs)
+    if (!detail) return `@${player.cachedName}\n  [${player.group}] ${player.playRoutes[lineLevel - 7]}\n  [${playerTech}]`
+    let infoMsg = ((!session.onebot) ? '-\n' : '') + `玩家: ${player.cachedName}`
+
+    const infoMap: Record<MenuCX, () => string> = {
+      [MenuCX.GROUP]: () => `\n集团: ${player.group}`,
+      [MenuCX.LICENCE]: () => `\n车牌: D${player.licence}`,
+      [MenuCX.ROUTES]: () => `\n场数: ${player.playRoutes}`,
+      [MenuCX.TECHS]: () => `\n科技: ${playerTech}`,
+      [MenuCX.QQ_ID]: () => `\nQ Q: ${player.qid}`,
+      [MenuCX.OPEN_ID]: () => `\nOpenId: ${player.openId ? player.openId : 'null'}`,
+    }
+    let mask = config.menuCX
+    Object.entries(infoMap).forEach(([bitStr, generator]) => {
+      const bit = Number(bitStr)
+      if (mask & bit)
+        infoMsg += generator()
+    })
+    return infoMsg
+  }
+
+  async function event_player_info(session: Session, playerId: string, detail: boolean = false): Promise<string> {
+    let player = (await getUserInfo(playerId))[0]
+    let einfo = await getRankInfo(playerId)
+    return detail ? `玩家: ${player.cachedName}\n  [${player.group}]\n  总分: ${einfo.totalScore}\n  场次: ${einfo.totalRuns}` : `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
   }
 
   async function drs_lines(session: Session): Promise<string> {
@@ -873,8 +941,8 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  async function getEventInfo(playerId: string): Promise<Pick<RsEventRanking, 'totalRuns' | 'totalScore'>> {
-    return (await ctx.database.get('erank', playerId, ['totalRuns', 'totalScore']))[0]
+  async function getRankInfo(playerId: string): Promise<Pick<RsEventRanking, 'totalRuns' | 'totalScore'>> {
+    return (await ctx.database.get('erank', playerId, ['totalRuns', 'totalScore']))[0] || { totalRuns: 0, totalScore: 0 }
   }
 
   async function getGroup(playerId: string): Promise<string> {
@@ -893,31 +961,6 @@ export function apply(ctx: Context, config: Config) {
     return ((isTryAt ? '@' : '') + playerName)
   }
 
-  async function formatted_playerdata(session: Session, playerId: string): Promise<string> {
-    let isInit = await init_status(session, playerId)
-    if (!isInit) return '未检索到玩家信息\n或玩家未初始化'
-    let player = (await getUserInfo(playerId))[0]
-    if (!player) return '未检索到玩家信息'
-    let playerTech = style_tech(player.techs)
-    let infoMsg = ((!session.onebot) ? '-\n' : '') + `玩家: ${player.cachedName}`
-
-    const infoMap: Record<MenuCX, () => string> = {
-      [MenuCX.GROUP]: () => `\n集团: ${player.group}`,
-      [MenuCX.LICENCE]: () => `\n车牌: D${player.licence}`,
-      [MenuCX.ROUTES]: () => `\n场数: ${player.playRoutes}`,
-      [MenuCX.TECHS]: () => `\n科技: ${playerTech}`,
-      [MenuCX.QQ_ID]: () => `\nQ Q: ${player.qid}`,
-      [MenuCX.OPEN_ID]: () => `\nOpenId: ${player.openId ? player.openId : 'null'}`,
-    }
-    let mask = config.menuCX
-    Object.entries(infoMap).forEach(([bitStr, generator]) => {
-      const bit = Number(bitStr)
-      if (mask & bit)
-        infoMsg += generator()
-    })
-    return infoMsg
-  }
-
   async function drs_timer(session: Session, targetType: string): Promise<string> {
     let timerList = await findWaitFromDrs(session, targetType)
     let tmp = '=>'
@@ -928,9 +971,13 @@ export function apply(ctx: Context, config: Config) {
     return tmp
   }
 
+  async function event_timer(playerId: string): Promise<string> {
+    return await format_time(event_cool[playerId] - Date.now())
+  }
+
   async function drop_table(tableName: any): Promise<void> {
     try {
-      ctx.database.drop(tableName)
+      await ctx.database.drop(tableName)
     }
     finally { }
   }
@@ -1031,6 +1078,10 @@ export function apply(ctx: Context, config: Config) {
 
   const head_name = async (session: Session, playerId: string): Promise<string> =>
     session.qq ? '' : await getUserName(session, playerId, true)
+
+  const end_msg = (lineLevel: number, lineId?: number): string =>
+    !!lineId ? `[车队编号: ${lineId}]\n[集合地点: ${config.event.name ? config.event.name : '红活团未指定'}]` :
+      `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${lineLevel}  ]`
 }
 
 function validate_tech(arg: string): number[] | null {
@@ -1039,6 +1090,21 @@ function validate_tech(arg: string): number[] | null {
   if (!match) return null
   const techs = [+match[1], +match[2], +match[3], +match[4]]
   return techs.every(n => n >= 1 && n <= 15) ? techs : null
+}
+
+function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: string; lineLevel: number, lineCapacity: number } {
+  const match = rawJoinType.match(/^([hH]?)([a-zA-Z]*)(\d*)$/i)
+  if (!match) return null
+  const [, hPrefix, typePart, rawLevel] = match
+  const lineLevel = rawLevel ? parseInt(rawLevel, 10) : null
+  const baseType = typePart || 'S'
+  const capacityKey = baseType[0]?.toUpperCase() || 'S'
+  return {
+    isEvent: !!hPrefix,
+    lineType: (hPrefix + typePart).toUpperCase(),
+    lineLevel: isNaN(lineLevel!) ? null : lineLevel,
+    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 0
+  }
 }
 
 const valid_drs = (drs_num: number): boolean =>
@@ -1071,8 +1137,8 @@ const style_tech = (techs: number[]): string =>
 const head_msg = (session: Session): string =>
   session.qq ? '-\n' : ''
 
-const end_msg = (lineLevel: number): string =>
-  `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${lineLevel}  ]`
-
 const line_capa = (lineType: string): number =>
   ({ R: 4, D: 3, K: 2, S: 1 }[lineType] ?? 0)
+
+const format_dr_count = (lineNum: number, lineMax: number): string =>
+  lineMax > 1 ? `\n———————————\n发车人数 [${lineNum}/${lineMax}]` : ''
