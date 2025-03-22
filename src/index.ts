@@ -589,16 +589,15 @@ export function apply(ctx: Context, config: Config) {
 
   console.clear()
 
-  async function join_drs(session: Session, joinType: string): Promise<void> {
+  async function join_drs(session: Session, joinType: string, isEvent: boolean = false): Promise<number> {
     let isInit = await init_status(session)
     if (!isInit) {
       session.send(init_msg(session))
-      return
+      return null
     }
     let qqid = await getQQid(session)
 
-    let lineLevel = +joinType.substring(1)
-    let lineType = joinType.substring(0, 1)
+    let lineType = joinType.at(0), lineLevel = +joinType.substring(1)
     if (isNaN(lineLevel)) {
       try {
         lineLevel = (await ctx.database.get('players', { qid: qqid }))[0].latestLine
@@ -606,7 +605,7 @@ export function apply(ctx: Context, config: Config) {
       } catch (error) {
         await ctx.database.upsert('players', (row) => [{ qid: qqid, latestLine: row.licence }])
         session.send('未查询到上一次排队等级,已记录为车牌等级\n下次可/D 或/K 一键快捷排队')
-        return
+        return null
       }
     }
 
@@ -615,26 +614,35 @@ export function apply(ctx: Context, config: Config) {
     let player = (await getUserInfo(qqid))[0]
 
     //检查是否可以排队
+    let check_msg: string
     if (await validate([
-      () => (!valid_drs(lineLevel) && (session.send(`暗红星等级为7-12,请输入正确等级`), true)),
-      () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`), true)),
-      () => (player.cachedName == '使用LR名字录入' && (session.send('请先录入游戏名\n例: LR名字 高语放歌'), true))
-    ])) return
+      () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
+      () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
+      () => (player.cachedName == '使用LR名字录入' && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
+    ])) {
+      check_msg.replace(/\n+$/, '')
+      session.send(check_msg)
+      return null
+    }
 
     //严格模式检查更多的信息
-    if (config.strictMode && await validate([
-      () => (player.group == '无集团' && (session.send('请先录入集团\n例: LR集团 巨蛇座'), true)),
-      () => (player.techs.every(t => !t) && (session.send('请先录入科技\n例: LR科技 创1富2延3强4'), true))
-    ])) return
+    if (config.strictMode && await validate_all([
+      () => (player.group == '无集团' && (check_msg += '请先录入集团\n例: LR集团 巨蛇座', true)),
+      () => (player.techs.every(t => !t) && (check_msg += '请先录入科技\n例: LR科技 创1富2延3强4', true))
+    ])) {
+      check_msg += '管理员已启用严格模式,请先检查以上信息'
+      check_msg.replace(/\n+$/, '')
+      return null
+    }
 
     let foundType = await findDrsFromId(session, qqid)
+    let timer = await drs_timer(session, joinType)
     if (!foundType) {
       await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType, waitDue: Date.now() + config.drsWaitTime }])
-      let timer = await drs_timer(session, joinType)
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
-      let lineMax = joinType.at(0) == 'K' ? 2 : 3
-      var drs_msg = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
+      let lineMax = line_capa(lineType)
+      var drs_msg = `${head_name(session, qqid)} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
 
       //发车
       if (lineNum >= lineMax) {
@@ -652,7 +660,7 @@ export function apply(ctx: Context, config: Config) {
       return
     }
     else if (foundType == joinType) {
-      session.send(`你已在${joinType}队伍中\n———————————\n${await drs_players_info(session, joinType)}———————————\n${await drs_timer(session, joinType)}`)
+      session.send(`你已在${joinType}队伍中\n———————————\n${await drs_players_info(session, joinType)}———————————\n${timer}`)
     }
 
     else {
@@ -699,15 +707,21 @@ export function apply(ctx: Context, config: Config) {
     console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
 
     //检查是否可以排队
+    let check_msg: string
     if (await validate([
-      () => (!config.event.enabled && (session.send(`红活未开启,禁止加入`), true)),
-      () => (!valid_drs(lineLevel) && (session.send(`暗红星等级为7-12,请输入正确等级`), true)),
-      () => (player.licence < lineLevel && (session.send(`你未获得${joinType}车牌,请联系管理授权`), true)),
-      () => (player.cachedName == '使用LR名字录入' && (session.send('请先录入游戏名\n例: LR名字 高语放歌'), true))
-    ])) return
+      () => (!config.event.enabled && (check_msg += `红活未开启,禁止加入\n`, true)),
+      () => (!valid_drs(lineLevel) && (check_msg += `暗红星等级为7-12,请输入正确等级\n`, true)),
+      () => (player.licence < lineLevel && (check_msg += `你未获得${joinType}车牌,请联系管理授权\n`, true)),
+      () => (player.cachedName == '使用LR名字录入' && (check_msg += '请先录入游戏名\n例: LR名字 高语放歌\n', true))
+    ])) {
+      check_msg.replace(/\n+$/, '')
+      session.send(check_msg)
+      return null
+    }
 
-    //开始红活单刷
+    //开始红活队列
     let foundType = await findDrsFromId(session, qqid)
+    let timer = await drs_timer(session, joinType)
     if (!foundType) {
       let dinfo = await ctx.database.create('elines', { qid: qqid, lineType: joinType })
       let einfo = await getEventInfo(qqid)
@@ -715,8 +729,8 @@ export function apply(ctx: Context, config: Config) {
       let eventScore = 0
       let playerGroup = await getGroup(qqid)
       if (dinfo && einfo) eventScore = einfo.totalScore
-      var drs_message = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
-      await session.send(drs_message)
+      var drs_msg = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
+      await session.send(drs_msg)
       return dinfo[0].lineId
     }
     else {
@@ -1015,6 +1029,9 @@ export function apply(ctx: Context, config: Config) {
       session.send(`备份恢复失败,已尝试回滚`)
     }
   }
+
+  const head_name = async (session: Session, playerId: string): Promise<string> =>
+    session.qq ? '' : await getUserName(session, playerId, true)
 }
 
 function validate_tech(arg: string): number[] | null {
@@ -1034,6 +1051,15 @@ const validate = async (checks: { (): boolean }[]) => {
   }
   return false
 }
+
+const validate_all = async (checks: { (): boolean }[]) => {
+  let result = false
+  for (const check of checks) {
+    if (check()) result = true
+  }
+  return result
+}
+
 const style_num = (num: number): string =>
   String.fromCodePoint(48 + num) + '\u20E3'
 
@@ -1048,3 +1074,6 @@ const head_msg = (session: Session): string =>
 
 const end_msg = (lineLevel: number): string =>
   `[如果小号进入请提前说明]\n[队伍已就绪我们在哪集合]\n[集团发车口令🔰  A${lineLevel}  ]`
+
+const line_capa = (lineType: string): number =>
+  ({ R: 4, D: 3, K: 2, S: 1 }[lineType] ?? 0)
