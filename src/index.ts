@@ -645,7 +645,7 @@ export function apply(ctx: Context, config: Config) {
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
       let lineMax = line_capa(lineType)
-      var drs_msg = `${head_name(session, qqid)} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
+      var drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n发车人数 [${lineNum}/${lineMax}]\n———————————\n${await drs_players_info(session, joinType, true)}———————————\n`
 
       //发车
       if (lineNum >= lineMax) {
@@ -732,7 +732,7 @@ export function apply(ctx: Context, config: Config) {
       let eventScore = 0
       let playerGroup = await getGroup(qqid)
       if (dinfo && einfo) eventScore = einfo.totalScore
-      var drs_msg = `${session.onebot ? session.author.nick : ''} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
+      var drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n╔ [${playerGroup}]\n╠ 红活次数: ${einfo.totalRuns}\n╠ 红活总分: ${eventScore}\n╚ 车队编号: ${lineId}\n———————————\nLRHH ${lineId} 得分`
       await session.send(drs_msg)
       return dinfo[0].lineId
     }
