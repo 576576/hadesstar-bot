@@ -100,7 +100,6 @@ export interface Players {
 export interface DrsLines {
   qid: string
   lineType: string
-  lineLevel: number
   waitDue: number
 }
 export interface RsEventLines {
@@ -188,12 +187,6 @@ export function apply(ctx: Context, config: Config) {
         type: 'string',
         length: 5,
         initial: 'K6',
-        nullable: false,
-      },
-      lineLevel: {
-        type: 'integer',
-        length: 2,
-        initial: 7,
         nullable: false,
       },
       waitDue: {
