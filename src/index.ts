@@ -367,6 +367,12 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, arg) => {
       await join_rs(session, `K${(arg || '')}`)
     })
+  ctx.command('S <arg>', '加入单人列队')
+    .alias('S7', { args: ['7'] }).alias('S8', { args: ['8'] }).alias('S9', { args: ['9'] })
+    .alias('S10', { args: ['10'] }).alias('S11', { args: ['11'] }).alias('S12', { args: ['12'] })
+    .action(async ({ session }, arg) => {
+      await join_rs(session, `S${(arg || '')}`)
+    })
   ctx.command('HS <arg>', '加入单人红活')
     .alias('HS7', { args: ['7'] }).alias('HS8', { args: ['8'] }).alias('HS9', { args: ['9'] })
     .alias('HS10', { args: ['10'] }).alias('HS11', { args: ['11'] }).alias('HS12', { args: ['12'] })
@@ -684,6 +690,7 @@ export function apply(ctx: Context, config: Config) {
     if (!foundType) {
       let info_msg: string, drs_msg: string
       if (lineMax == 1) {
+        //单人发车
         drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${joinInfo.isEvent ? (await event_player_info(session, qqid, true)) : (await drs_player_info(session, qqid, false, joinInfo.lineLevel))}\n———————————\n`
         if (joinInfo.isEvent)
           lineId = await create_event_line([qqid], joinType)
@@ -698,7 +705,7 @@ export function apply(ctx: Context, config: Config) {
       info_msg = joinInfo.isEvent ? (await event_players_info(session, joinType, true)) : (await drs_players_info(session, joinType, true))
       drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍${format_dr_count(lineNum, lineMax)}\n———————————\n${info_msg}———————————\n`
 
-      //发车
+      //多人发车
       timer = await drs_timer(session, joinType)
       if (lineNum >= lineMax) {
         if (!joinInfo.isEvent)
@@ -1106,7 +1113,7 @@ function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: strin
     isEvent: !!hPrefix,
     lineType: (hPrefix + typePart).toUpperCase(),
     lineLevel: isNaN(lineLevel!) ? null : lineLevel,
-    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 0
+    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 1
   }
 }
 
