@@ -329,8 +329,10 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, arg) => {
       let dinfo = await ctx.database.get('dlines', {}, ['lineType'])
       for (const player of dinfo) {
-        if (!isBasicType(player.lineType)) await quit_rs_type(session, arg, false)
+        console.log(`${player.lineType} : ${isBasicType(player.lineType)}`)
+        if (!isBasicType(player.lineType)) await quit_rs_type(session, player.lineType, false)
       }
+      session.send('已清除所有自定义队列')
     })
 
   ctx.command('CSH <qid> [openId]', '初始化玩家数据')
@@ -792,7 +794,7 @@ export function apply(ctx: Context, config: Config) {
       let d_msg = `${head_msg(session)}${await getUserName(session, playerId)} 已退出${quitType}队列`
       await session.send(d_msg)
     }
-    session.send(`已清除${quitType}队列`)
+    noisy ? session.send(`已清除${quitType}队列`) : null
   }
 
   async function create_event_line(players: string[], joinType: string): Promise<number> {
@@ -867,7 +869,8 @@ export function apply(ctx: Context, config: Config) {
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
     let dinfo = await ctx.database.get('dlines', { lineType: checkType })
-    if (dinfo[0] == undefined) return []
+    console.log(dinfo)
+    if (!dinfo[0]) return []
     let foundIdList = []
     dinfo.forEach(element => {
       foundIdList.push(element.qid)
