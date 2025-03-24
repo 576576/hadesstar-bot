@@ -401,10 +401,18 @@ export function apply(ctx: Context, config: Config) {
     .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
     .alias('CK10', { args: ['10'] }).alias('CK11', { args: ['11'] }).alias('CK12', { args: ['12'] })
     .action(async ({ session }, arg) => {
-      if (valid_drs(+arg)) {
-        await session.send(await drs_line(session, +arg))
+      if (!arg) await session.send(await drs_lines(session))
+      else if (valid_drs(+arg)) await session.send(await drs_line(session, +arg))
+      else {
+        let dinfo = await findDrsFromId(session, session.userId)
+        if (!dinfo) {
+          session.send('你暂无队列')
+          return
+        }
+        await drs_timer(session, dinfo)
+        dinfo = await findDrsFromId(session, session.userId)
+        dinfo ? session.send(`你在${dinfo}队列中`) : null
       }
-      else await session.send(await drs_lines(session))
     })
 
   ctx.command('CX [userId]', '查询玩家信息')
@@ -859,14 +867,14 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function drs_players_info(session: Session, targetType: string, isTryAt?: boolean): Promise<string> {
-    let targetNum = +targetType.substring(1) - 7
+    let d_level = (await parseJoinType(targetType)).lineLevel - 7
     let playersId = await findIdFromDrs(targetType)
     if (!playersId.length) return `${targetType}队列为空`
     let d_msg = '', player: Players, players = await getUserInfo(playersId), playerName: string
     for (var i = 0; i < playersId.length; i++) {
       player = players[i]
       playerName = await getUserName(session, player.qid, isTryAt)
-      d_msg += `${style_num(i + 1)}${playerName}\n  [${player.group}] ${player.playRoutes[targetNum]}\n  [${style_tech(player.techs)}]\n`
+      d_msg += `${style_num(i + 1)}${playerName}\n  [${player.group}] ${player.playRoutes[d_level]}\n  [${style_tech(player.techs)}]\n`
     }
     return d_msg
   }
@@ -1103,7 +1111,7 @@ function validate_tech(arg: string): number[] | null {
 }
 
 function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: string; lineLevel: number, lineCapacity: number } {
-  const match = rawJoinType.match(/^([hH]?)([a-zA-Z]*)(\d*)$/i)
+  const match = rawJoinType.match(/^([hH]?)([\u4e00-\u9fa5a-zA-Z]*?)(\d*)$/)
   if (!match) return null
   const [, hPrefix, typePart, rawLevel] = match
   const lineLevel = rawLevel ? parseInt(rawLevel, 10) : null
@@ -1111,9 +1119,9 @@ function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: strin
   const capacityKey = baseType[0]?.toUpperCase() || 'S'
   return {
     isEvent: !!hPrefix,
-    lineType: (hPrefix + typePart).toUpperCase(),
+    lineType: (hPrefix + typePart).trim() || 'S',
     lineLevel: isNaN(lineLevel!) ? null : lineLevel,
-    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 1
+    lineCapacity: { R:4, D:3, K:2, S:1 }[capacityKey] ?? 1
   }
 }
 
