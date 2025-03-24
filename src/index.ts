@@ -100,6 +100,7 @@ export interface Players {
 export interface DrsLines {
   qid: string
   lineType: string
+  lineLevel: number
   waitDue: number
 }
 export interface RsEventLines {
@@ -187,6 +188,12 @@ export function apply(ctx: Context, config: Config) {
         type: 'string',
         length: 5,
         initial: 'K6',
+        nullable: false,
+      },
+      lineLevel: {
+        type: 'integer',
+        length: 2,
+        initial: 7,
         nullable: false,
       },
       waitDue: {
@@ -320,6 +327,19 @@ export function apply(ctx: Context, config: Config) {
       session.send('已清除所有队列')
     })
 
+  ctx.command('XF <arg>', '清空某一队列')
+    .action(async ({ session }, arg) => {
+      await quit_rs_type(session, arg)
+    })
+
+  ctx.command('XFZ <arg>', '清空自定义队列')
+    .action(async ({ session }, arg) => {
+      let dinfo = await ctx.database.get('dlines', {}, ['lineType'])
+      for (const player of dinfo) {
+        if (!isBasicType(player.lineType)) await quit_rs_type(session, arg, false)
+      }
+    })
+
   ctx.command('CSH <qid> [openId]', '初始化玩家数据')
     .action(async ({ session }, qid, openId?) => {
       let isInit = await init_status(session)
@@ -354,6 +374,13 @@ export function apply(ctx: Context, config: Config) {
       await join_rs(session, arg)
     })
 
+  ctx.command('R <arg>', '加入四人组队')
+    .alias('R7', { args: ['7'] }).alias('R8', { args: ['8'] }).alias('R9', { args: ['9'] })
+    .alias('R10', { args: ['10'] }).alias('R11', { args: ['11'] }).alias('R12', { args: ['12'] })
+    .alias('R6', { args: ['6'] }).alias('K6', { args: ['6'] }).alias('HS6', { args: ['6'] })
+    .action(async ({ session }, arg) => {
+      await join_rs(session, `R${(arg || '')}`)
+    })
   ctx.command('D <arg>', '加入三人组队')
     .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
     .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
@@ -758,6 +785,26 @@ export function apply(ctx: Context, config: Config) {
     else await session.send("你未在队伍中")
   }
 
+  async function quit_rs_type(session: Session, quitType: string, noisy: boolean = true): Promise<void> {
+    let qqid = await getQQid(session)
+    if (!qqid) return
+    if (!(await isAdmin(session))) {
+      session.send('无管理权限')
+      return
+    }
+    let foundIdList = await findIdFromDrs(quitType)
+    if (!foundIdList[0]) {
+      noisy ? session.send(`${quitType}队列为空`) : null
+      return
+    }
+    for (const playerId of foundIdList) {
+      await ctx.database.remove('dlines', { qid: playerId })
+      let d_msg = `${head_msg(session)}${await getUserName(session, playerId)} 已退出${quitType}队列`
+      await session.send(d_msg)
+    }
+    session.send(`已清除${quitType}队列`)
+  }
+
   async function create_event_line(players: string[], joinType: string): Promise<number> {
     let qqid = players[0], partners = players.slice(1)
     let einfo = await ctx.database.create('elines', { qid: qqid, lineType: joinType, partners: partners })
@@ -1125,6 +1172,9 @@ function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: strin
   }
 }
 
+const isBasicType = (joinType: string): boolean =>
+  /^(h?[rdks]\d*|[rdks])$/i.test(joinType)
+
 const valid_drs = (drs_num: number): boolean =>
   !isNaN(drs_num) && drs_num >= 7 && drs_num <= 12
 
@@ -1154,9 +1204,6 @@ const style_tech = (techs: number[]): string =>
 
 const head_msg = (session: Session): string =>
   session.qq ? '-\n' : ''
-
-const line_capa = (lineType: string): number =>
-  ({ R: 4, D: 3, K: 2, S: 1 }[lineType] ?? 0)
 
 const format_dr_count = (lineNum: number, lineMax: number): string =>
   lineMax > 1 ? `\n———————————\n发车人数 [${lineNum}/${lineMax}]` : ''
