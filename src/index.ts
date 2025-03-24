@@ -698,8 +698,8 @@ export function apply(ctx: Context, config: Config) {
 
     //红活模式检查更多信息
     if (joinInfo.isEvent && await validate([
-      () => (!config.event.enabled && (check_msg += `红活未开启,禁止加入\n`, true)),
-      () => ((qqid in event_cool) && event_cool[qqid] > Date.now() && (check_msg += `红活加入冷却: ${event_timer(qqid)}\n`, true))
+      () => (!config.event.enabled && (check_msg = `红活未开启,禁止加入\n`, true)),
+      () => ((qqid in event_cool) && event_cool[qqid] > Date.now() && (check_msg = `红活加入冷却: ${event_timer(qqid)}\n`, true))
     ])) {
       session.send(check_msg.trim())
       return null
