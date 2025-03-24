@@ -329,7 +329,6 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, arg) => {
       let dinfo = await ctx.database.get('dlines', {}, ['lineType'])
       for (const player of dinfo) {
-        console.log(`${player.lineType} : ${isBasicType(player.lineType)}`)
         if (!isBasicType(player.lineType)) await quit_rs_type(session, player.lineType, false)
       }
       session.send('已清除所有自定义队列')
@@ -359,7 +358,6 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       if (!openId) openId = session.userId
-      console.log(`${openId}: 绑定了${qid}`)
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId }])
       session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
     })
@@ -518,7 +516,6 @@ export function apply(ctx: Context, config: Config) {
         await session.send('请授予正确车牌D7-12,或D6以撤销车牌')
         return
       }
-      console.log(`${qqid}: 获取了D${licenceNum}车牌`)
       await ctx.database.upsert('players', () => [{ qid: qqid, licence: licenceNum }])
       await session.send(`已授予${await getUserName(session, qqid)} D${licenceNum}车牌`)
     })
@@ -663,7 +660,6 @@ export function apply(ctx: Context, config: Config) {
     let qqid = await getQQid(session)
 
     let joinInfo = parseJoinType(joinType), lineId: number
-    console.log(joinInfo)
     if (!joinInfo || joinInfo.lineCapacity <= 0) return
     const lineMax = joinInfo.lineCapacity
     if (!joinInfo.lineLevel) {
@@ -676,8 +672,6 @@ export function apply(ctx: Context, config: Config) {
         return null
       }
     }
-
-    console.log(`\n${qqid}: 尝试加入${joinType}队伍`)
 
     let player = (await getUserInfo(qqid))[0]
 
@@ -869,7 +863,6 @@ export function apply(ctx: Context, config: Config) {
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
     let dinfo = await ctx.database.get('dlines', { lineType: checkType })
-    console.log(dinfo)
     if (!dinfo[0]) return []
     let foundIdList = []
     dinfo.forEach(element => {
