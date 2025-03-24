@@ -1111,7 +1111,7 @@ function validate_tech(arg: string): number[] | null {
 }
 
 function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: string; lineLevel: number, lineCapacity: number } {
-  const match = rawJoinType.match(/^([hH]?)([\u4e00-\u9fa5a-zA-Z]*?)(\d*)$/)
+  const match = rawJoinType.match(/^([hH]?)([\u4e00-\u9fa5a-zA-Z_]*?)(\d*)$/)
   if (!match) return null
   const [, hPrefix, typePart, rawLevel] = match
   const lineLevel = rawLevel ? parseInt(rawLevel, 10) : null
@@ -1121,7 +1121,7 @@ function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: strin
     isEvent: !!hPrefix,
     lineType: (hPrefix + typePart).trim() || 'S',
     lineLevel: isNaN(lineLevel!) ? null : lineLevel,
-    lineCapacity: { R:4, D:3, K:2, S:1 }[capacityKey] ?? 1
+    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 1
   }
 }
 
