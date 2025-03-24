@@ -186,7 +186,7 @@ export function apply(ctx: Context, config: Config) {
       lineType: {
         type: 'string',
         length: 5,
-        initial: 'K6',
+        initial: 'S7',
         nullable: false,
       },
       waitDue: {
@@ -370,14 +370,12 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('R <arg>', '加入四人组队')
     .alias('R7', { args: ['7'] }).alias('R8', { args: ['8'] }).alias('R9', { args: ['9'] })
     .alias('R10', { args: ['10'] }).alias('R11', { args: ['11'] }).alias('R12', { args: ['12'] })
-    .alias('R6', { args: ['6'] }).alias('K6', { args: ['6'] }).alias('HS6', { args: ['6'] })
     .action(async ({ session }, arg) => {
       await join_rs(session, `R${(arg || '')}`)
     })
   ctx.command('D <arg>', '加入三人组队')
     .alias('D7', { args: ['7'] }).alias('D8', { args: ['8'] }).alias('D9', { args: ['9'] })
     .alias('D10', { args: ['10'] }).alias('D11', { args: ['11'] }).alias('D12', { args: ['12'] })
-    .alias('D6', { args: ['6'] }).alias('K6', { args: ['6'] }).alias('HS6', { args: ['6'] })
     .action(async ({ session }, arg) => {
       await join_rs(session, `D${(arg || '')}`)
     })
@@ -515,7 +513,7 @@ export function apply(ctx: Context, config: Config) {
 
       let licenceNum = +(licence.substring(1))
       if (!valid_drs(licenceNum) && licenceNum != 6) {
-        await session.send('请输入正确车牌D7-12,或D6以撤销车牌')
+        await session.send('请授予正确车牌D7-12,或D6以撤销车牌')
         return
       }
       console.log(`${qqid}: 获取了D${licenceNum}车牌`)
@@ -710,7 +708,6 @@ export function apply(ctx: Context, config: Config) {
       session.send(check_msg.trim())
       return null
     }
-
 
     //开始暗红星/红活队列
     let foundType = await findDrsFromId(session, qqid)
