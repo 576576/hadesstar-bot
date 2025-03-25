@@ -266,7 +266,7 @@ export function apply(ctx: Context, config: Config) {
   //主监听用户输入
   ctx.on('message', async (session) => {
 
-    console.log(`\n${session.userId}: ${session.content}`)
+    // console.log(`\n${session.userId}: ${session.content}`)
 
     //骚话模块
     humor_talk(session)
@@ -332,6 +332,11 @@ export function apply(ctx: Context, config: Config) {
         if (!isBasicType(player.lineType)) await quit_rs_type(session, player.lineType, false)
       }
       session.send('已清除所有自定义队列')
+    })
+
+  ctx.command('cs <arg:text>')
+    .action(async ({ session }, arg) => {
+      session.send('ok')
     })
 
   ctx.command('CSH <qid> [openId]', '初始化玩家数据')
@@ -595,12 +600,13 @@ export function apply(ctx: Context, config: Config) {
       }
     })
 
-  ctx.command('LH <userId> <score>', '管理补录红活分数')
-    .action(async ({ session }, userId, score) => {
+  ctx.command('LH <arg:text>', '管理补录红活分数')
+    .action(async ({ session }, arg) => {
       if (!(await isSuper(session))) {
         session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数')
         return
       }
+      let [userId, score] = arg.split(' ')
       let qqid = await getQQid(session, userId)
       if (!qqid) return
 
@@ -611,7 +617,7 @@ export function apply(ctx: Context, config: Config) {
       }
       let einfo = await record_event(session, +qqid, runScore)
       if (!!einfo) {
-        session.send(`-\n${await getUserName(session, qqid)} 补录红活成功\n————————————\n╔ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`-\n${await getUserName(session, qqid, true)} 补录红活成功\n————————————\n╔ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
       else session.send('补录失败')
     })
@@ -816,7 +822,7 @@ export function apply(ctx: Context, config: Config) {
       score = lineId_score_playerId
       einfo = await ctx.database.get('elines', { qid: qqid, runScore: { $lte: 1 } })
       if (!einfo[0]) {
-        session.send('未检索到红活队列,不可录入')
+        session.send('无效红活队列,不可录入')
         return null
       }
       lineId = einfo[0].lineId
@@ -825,22 +831,23 @@ export function apply(ctx: Context, config: Config) {
       //正常录入模式
       einfo = await ctx.database.get('elines', { lineId: lineId })
       if (!einfo[0]) {
-        session.send('未检索到红活队列,不可录入\n或多人红活组队不支持缺省队伍号录入')
+        session.send('无效红活队列,不可录入\n或多人红活组队不支持缺省队伍号录入')
         return null
       }
       if (einfo[0].qid != qqid && !einfo[0].partners.includes(qqid)) {
         session.send('不可录入他人队列')
         return null
       }
+      if (einfo[0].runScore > 0) {
+        session.send(`队列${lineId}不可重复录入`)
+        return null
+      }
     }
     else {
       session.send('录入失败, 无管理权限\nLRHH 红活号码 红活分数\n(或) LRHH 红活分数')
-    }
-
-    if (einfo[0].runScore != 0 && !isAdmin(session)) {
-      session.send(`队列${lineId}不可重复录入`)
       return null
     }
+
     let pInfo = []
     if (!!einfo[0].partners) {
       score = Math.ceil(score / (einfo[0].partners.length + 1))
