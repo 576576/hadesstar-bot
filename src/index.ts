@@ -24,7 +24,7 @@ enum MenuCX {
   QQ_ID = 1 << 4,
   OPEN_ID = 1 << 5,
 }
-const event_cool: { [key: string]: number } = {}
+let event_cool: { [key: string]: number } = {}
 
 export const Config: Schema<Config> = Schema.object({
   strictMode: Schema.boolean().default(false).description('严格模式: 未录入名字/集团/科技不可排队'),
@@ -415,10 +415,7 @@ export function apply(ctx: Context, config: Config) {
       await join_rs(session, `HD${(arg || '')}`)
     })
 
-  ctx.command('TC', '退出所有列队')
-    .action(async ({ session }) => {
-      await quit_rs(session)
-    })
+  ctx.command('TC', '退出所有列队').action(async ({ session }) => (await quit_rs(session)))
 
   ctx.command('CK [arg]', '查询排队情况')
     .alias('CK7', { args: ['7'] }).alias('CK8', { args: ['8'] }).alias('CK9', { args: ['9'] })
@@ -633,6 +630,7 @@ export function apply(ctx: Context, config: Config) {
       await drop_table('elines')
       await drop_table('erank')
       initRsEventTables()
+      event_cool = {}
     })
 
   ctx.command('备份 [fileName]', '生成备份')
@@ -839,8 +837,11 @@ export function apply(ctx: Context, config: Config) {
         return null
       }
       if (einfo[0].runScore > 0) {
-        session.send(`队列${lineId}不可重复录入`)
-        return null
+        if (!(await isSuper(session))) {
+          session.send(`队列${lineId}不可重复录入`)
+          return null
+        }
+        session.send(`覆盖录入成功\n队列序号: ${lineId}\n改前分数: ${einfo[0].runScore}\n改后分数: ${score}`)
       }
     }
     else {
