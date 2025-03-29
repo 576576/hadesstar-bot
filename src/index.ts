@@ -281,6 +281,7 @@ export function apply(ctx: Context, config: Config) {
     await session.qq.sendMessage(session.channelId, {
       msg_type: 2,
       msg_id: session.messageId,
+      content: '快捷排队菜单',
       keyboard: {
         id: '102704003_1743073117'
       },
