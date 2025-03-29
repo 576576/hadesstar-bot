@@ -824,7 +824,7 @@ export function apply(ctx: Context, config: Config) {
         session.send('无效红活队列,不可录入\n或多人红活组队不支持缺省队伍号录入')
         return null
       }
-      else if (einfo[0].qid != qqid && !einfo[0].partners.includes(qqid)) {
+      else if (einfo[0].qid != qqid && !einfo[0].partners.includes(qqid) && !(await isSuper(session))) {
         session.send('不可录入他人队列')
         return null
       }
