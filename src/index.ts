@@ -707,6 +707,7 @@ export function apply(ctx: Context, config: Config) {
         if (joinInfo.isEvent)
           lineId = await create_event_line([qqid], joinType)
         await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+        await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: joinInfo.lineLevel }])
         return lineId
       }
       await ctx.database.upsert('dlines', () => [{ qid: qqid, lineType: joinType, waitDue: Date.now() + config.drsWaitTime }])
