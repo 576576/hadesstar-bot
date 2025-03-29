@@ -12,6 +12,7 @@ export interface Config {
   drsWaitTime: number
   customLineLength: number
   strictMode: boolean
+  buttonId: string
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
   event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
   menuCX: MenuCX
@@ -35,6 +36,8 @@ export const Config: Schema<Config> = Schema.object({
   customLineLength: Schema.number()
     .default(0)
     .description('自定义队伍的默认长度'),
+  buttonId: Schema.string()
+    .description('申请的qq快捷排队模板id'),
   menuCX: Schema.bitset(MenuCX)
     .default(MenuCX.GROUP | MenuCX.LICENCE | MenuCX.ROUTES | MenuCX.TECHS)
     .description('要在CX指令显示的菜单项'),
@@ -267,22 +270,12 @@ export function apply(ctx: Context, config: Config) {
 
   //主监听用户输入
   ctx.on('message', async (session) => {
-
-    // console.log(`\n${session.userId}: ${session.content}`)
     humor_talk(session)
-
   })
 
   ctx.command('PD', '按钮快捷排队')
     .action(async ({ session }) => {
-      await session.qq.sendMessage(session.channelId, {
-        msg_type: 2,
-        msg_id: session.messageId,
-        content: '快捷排队菜单',
-        keyboard: {
-          id: '102704003_1743073117'
-        },
-      })
+      await send_menu(session)
     })
 
   ctx.command('CZHX', '重置所有玩家数据')
@@ -649,8 +642,6 @@ export function apply(ctx: Context, config: Config) {
       await importBackup(session, path.join(root, 'backup'), fileName)
     })
 
-  console.clear()
-
   async function join_rs(session: Session, joinType: string): Promise<number> {
     let isInit = await init_status(session)
     if (!isInit) {
@@ -904,10 +895,7 @@ export function apply(ctx: Context, config: Config) {
       }
     }
     let playerId = playerId_or_lineId
-    let einfos1 = await ctx.database.select('elines').where(row => $.eq(row.qid, playerId)).execute()
-    let einfos2 = await ctx.database.select('elines').where(row => $.in(playerId, row.partners)).execute()
-    console.log(einfos2)
-    let einfos = einfos1.concat(einfos2)
+    let einfos = await ctx.database.get('elines', { $or: [{ qid: { $eq: playerId } }, { partners: { $el: playerId } }] })
     einfos = einfos.sort(row => row.lineId)
     let h_msg = head_msg(session)
     for (const einfo of einfos) {
@@ -1150,6 +1138,17 @@ export function apply(ctx: Context, config: Config) {
     if (session.platform === 'onebot')
       return session.onebot?.sender?.role === 'owner' || config.admin.super.includes(session.userId)
     return false
+  }
+
+  async function send_menu(session: Session) {
+    await session.qq.sendMessage(session.channelId, {
+      content: '快捷排队',
+      msg_type: 2,
+      msg_id: session.messageId,
+      keyboard: {
+        id: config.buttonId
+      },
+    })
   }
 
   async function humor_talk(session: Session) {
