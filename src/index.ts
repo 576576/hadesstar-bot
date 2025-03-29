@@ -10,6 +10,7 @@ export const inject = ['database']
 export interface Config {
   admin: { enabled?: boolean, members?: string[], super?: string[] }
   drsWaitTime: number
+  customLineLength: number
   strictMode: boolean
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
   event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
@@ -31,6 +32,9 @@ export const Config: Schema<Config> = Schema.object({
   drsWaitTime: Schema.number()
     .default(18e5)
     .description('超时踢出前等待的时间 ms'),
+  customLineLength: Schema.number()
+    .default(0)
+    .description('自定义队伍的默认长度'),
   menuCX: Schema.bitset(MenuCX)
     .default(MenuCX.GROUP | MenuCX.LICENCE | MenuCX.ROUTES | MenuCX.TECHS)
     .description('要在CX指令显示的菜单项'),
@@ -1175,6 +1179,21 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
+  function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: string; lineLevel: number, lineCapacity: number } {
+    const match = rawJoinType.match(/^([hH]?)([\u4e00-\u9fa5a-zA-Z_]*?)(\d*)$/)
+    if (!match) return null
+    const [, hPrefix, typePart, rawLevel] = match
+    const lineLevel = rawLevel ? parseInt(rawLevel, 10) : null
+    const baseType = typePart
+    const capacityKey = baseType?.toUpperCase() || '自定义'
+    return {
+      isEvent: !!hPrefix,
+      lineType: (hPrefix + typePart).trim() || 'S',
+      lineLevel: isNaN(lineLevel!) ? null : lineLevel,
+      lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? config.customLineLength
+    }
+  }
+
   const head_name = async (session: Session, playerId: string): Promise<string> =>
     session.qq ? '' : await getUserName(session, playerId, true)
 
@@ -1190,21 +1209,6 @@ function validate_tech(arg: string): number[] | null {
   if (!match) return null
   const techs = [+match[1], +match[2], +match[3], +match[4]]
   return techs.every(n => n >= 1 && n <= 15) ? techs : null
-}
-
-function parseJoinType(rawJoinType: string): { isEvent: boolean; lineType: string; lineLevel: number, lineCapacity: number } {
-  const match = rawJoinType.match(/^([hH]?)([\u4e00-\u9fa5a-zA-Z_]*?)(\d*)$/)
-  if (!match) return null
-  const [, hPrefix, typePart, rawLevel] = match
-  const lineLevel = rawLevel ? parseInt(rawLevel, 10) : null
-  const baseType = typePart || 'S'
-  const capacityKey = baseType[0]?.toUpperCase() || 'S'
-  return {
-    isEvent: !!hPrefix,
-    lineType: (hPrefix + typePart).trim() || 'S',
-    lineLevel: isNaN(lineLevel!) ? null : lineLevel,
-    lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? 1
-  }
 }
 
 const isBasicType = (joinType: string): boolean =>
