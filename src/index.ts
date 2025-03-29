@@ -277,6 +277,16 @@ export function apply(ctx: Context, config: Config) {
 
   })
 
+  ctx.command("test").action(async ({ session }) => {
+    await session.qq.sendMessage(session.channelId, {
+      msg_type: 2,
+      msg_id: session.messageId,
+      keyboard: {
+        id: '102704003_1743073117'
+      },
+    })
+  })
+
   ctx.command('CZHX', '重置所有玩家数据')
     .action(async ({ session }) => {
       if (!(await isSuper(session))) {
