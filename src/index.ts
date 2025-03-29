@@ -121,8 +121,6 @@ export interface RsEventRanking {
 
 export function apply(ctx: Context, config: Config) {
 
-  if (config.event.enabled === undefined) config.event.enabled = false
-
   const root = path.join(ctx.baseDir, 'data', name)
 
   initPlayerTable()
@@ -271,22 +269,21 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('message', async (session) => {
 
     // console.log(`\n${session.userId}: ${session.content}`)
-
-    //骚话模块
     humor_talk(session)
 
   })
 
-  ctx.command("test").action(async ({ session }) => {
-    await session.qq.sendMessage(session.channelId, {
-      msg_type: 2,
-      msg_id: session.messageId,
-      content: '快捷排队菜单',
-      keyboard: {
-        id: '102704003_1743073117'
-      },
+  ctx.command('PD', '按钮快捷排队')
+    .action(async ({ session }) => {
+      await session.qq.sendMessage(session.channelId, {
+        msg_type: 2,
+        msg_id: session.messageId,
+        content: '快捷排队菜单',
+        keyboard: {
+          id: '102704003_1743073117'
+        },
+      })
     })
-  })
 
   ctx.command('CZHX', '重置所有玩家数据')
     .action(async ({ session }) => {
@@ -380,11 +377,6 @@ export function apply(ctx: Context, config: Config) {
       if (!openId) openId = session.userId
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId }])
       session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
-    })
-
-  ctx.command('PD <arg>', '通用排队指令')
-    .action(async ({ session }, arg) => {
-      await join_rs(session, arg)
     })
 
   ctx.command('R <arg>', '加入四人组队')
