@@ -861,7 +861,7 @@ export function apply(ctx: Context, config: Config) {
       session.send('无管理权限')
       return
     }
-    let minScore = config.event.minScore, minRank = null
+    let minScore = config.event.minScore, minRank = 0
     if (!isNaN(+minScore_or_rank)) {
       if (+minScore_or_rank > 200) minScore = +minScore_or_rank
       else if (+minScore_or_rank > 0) minRank = +minScore_or_rank
