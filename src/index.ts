@@ -529,13 +529,14 @@ export function apply(ctx: Context, config: Config) {
         session.send('无红名单权限')
         return
       }
-      if (eState != undefined) config.event.enabled = !eState
-      if (config.event.enabled) await session.send('红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活')
+      if (eState !== undefined) config.event.enabled = !!eState
+      else config.event.enabled = !config.event.enabled
+      if (!config.event.enabled)
+        await session.send(`红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活${await show_event_result()}`)
       else {
         initRsEventTables()
         session.send('红星活动已开启\n输入HS7-12开始红活')
       }
-      config.event.enabled = !config.event.enabled
     })
 
   ctx.command('PH [arg]', '查询红活排行')
@@ -868,13 +869,13 @@ export function apply(ctx: Context, config: Config) {
     }
     let einfos = await ctx.database.select('erank').where(row => $.gt(row.totalScore, minScore)).orderBy(row => row.totalScore, 'desc').execute()
     if (minRank != 0) einfos = einfos.slice(0, minRank)
+    await session.sendQueued(`${config.event.name}红活榜\n分数阈值: ${minScore}${!minRank ? '' : '\n排名阈值: ' + minRank}\n${await show_event_result()}`)
     if (!einfos[0]) {
       await session.sendQueued('未检索到红活排行信息')
       return
     }
     let h_msg = head_msg(session)
     let tmp: string[] = ['', '', '', '', ''], index = 0
-    await session.sendQueued(`${config.event.name}红活榜\n分数阈值: ${minScore}${!minRank ? '' : '\n排名阈值: ' + minRank}`)
     for (const einfo of einfos) {
       let index2 = Math.floor(index / 15)
       tmp[index2] += `${++index}. ${await event_player_info(session, einfo.qid)}\n`
@@ -885,7 +886,7 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  async function show_event_history(session: Session, playerId_or_lineId: string) {
+  async function show_event_history(session: Session, playerId_or_lineId: string): Promise<void> {
     if (!(await isAdmin(session))) {
       session.send('无管理权限')
       return
@@ -909,6 +910,13 @@ export function apply(ctx: Context, config: Config) {
       h_msg += `【场次${einfo.lineId} ${einfo.lineType} 分数${einfo.runScore}】\n`
     }
     session.send(h_msg.trim())
+  }
+
+  async function show_event_result(): Promise<string> {
+    let einfos = await ctx.database.get('erank', {}, ['totalScore'])
+    let totalScore = 0
+    for (const einfo of einfos) totalScore += einfo.totalScore
+    return `红活总分: ${totalScore}\n红活人数: ${einfos.length}`
   }
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
