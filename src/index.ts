@@ -550,6 +550,15 @@ export function apply(ctx: Context, config: Config) {
       show_event_history(session, userId)
     })
 
+  ctx.command('CXHJ')
+    .action(async ({ session }) => {
+      if (!(await isAdmin(session))) {
+        session.send('无管理权限')
+        return
+      }
+      session.send(`红活统计\n${await show_event_result()}`)
+    })
+
   ctx.command('CXHH [userId]', '查询红活分数')
     .action(async ({ session }, userId) => {
       let qqid = await getQQid(session, userId, true)
