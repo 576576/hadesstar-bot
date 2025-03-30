@@ -592,7 +592,7 @@ export function apply(ctx: Context, config: Config) {
 
       let einfo = await record_event(session, +lineNum_or_score, +score)
       if (einfo) {
-        session.send(`红活录入成功\n————————————\n╔ 车队序号: ${einfo.lineId}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${einfo.runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`红活录入成功\n———————————\n╔ 车队序号: ${einfo.lineId}\n╠ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${einfo.runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
     })
 
@@ -613,7 +613,7 @@ export function apply(ctx: Context, config: Config) {
       }
       let einfo = await record_event(session, +qqid, runScore)
       if (!!einfo) {
-        session.send(`-\n${await getUserName(session, qqid, true)} 补录红活成功\n————————————\n╔ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
+        session.send(`-\n${await getUserName(session, qqid, true)} 补录红活成功\n———————————\n╔ 本轮等级: ${einfo.lineLevel}\n╠ 当前次数: ${einfo.totalRuns}\n╠ 本轮分数: ${runScore}\n╚ 当前总分: ${einfo.totalScore}`)
       }
       else session.send('补录失败')
     })
@@ -713,7 +713,10 @@ export function apply(ctx: Context, config: Config) {
       let info_msg: string, drs_msg: string
       if (lineMax == 1) {
         //单人发车
-        drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${joinInfo.isEvent ? (await event_player_info(session, qqid, true)) : (await drs_player_info(session, qqid, false, joinInfo.lineLevel)) + '\n———————————\n'}`
+        info_msg = joinInfo.isEvent ?
+          (await event_player_info(session, qqid, true)) :
+          (await drs_player_info(session, qqid, false, joinInfo.lineLevel))
+        drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${info_msg}———————————\n`
         if (joinInfo.isEvent)
           lineId = await create_event_line([qqid], joinType)
         await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
@@ -724,9 +727,9 @@ export function apply(ctx: Context, config: Config) {
       let dinfo = await findIdFromDrs(joinType)
       let lineNum = dinfo.length
       info_msg = joinInfo.isEvent ?
-        (await event_players_info(session, joinType, true)) + (lineNum < lineMax ? '———————————\n' : '') :
-        (await drs_players_info(session, joinType, true)) + '———————————\n'
-      drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍${format_dr_count(lineNum, lineMax)}\n———————————\n${info_msg}`
+        (await event_players_info(session, joinType, true)) :
+        (await drs_players_info(session, joinType, true))
+      drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍${format_dr_count(lineNum, lineMax)}\n———————————\n${info_msg}———————————\n`
 
       //多人发车
       timer = await drs_timer(session, joinType)
@@ -998,7 +1001,7 @@ export function apply(ctx: Context, config: Config) {
     let player = (await getUserInfo(playerId))[0]
     if (!player) return '未检索到玩家信息'
     let playerTech = style_tech(player.techs)
-    if (!detail) return `@${player.cachedName}\n  [${player.group}] ${player.playRoutes[lineLevel - 7]}\n  [${playerTech}]`
+    if (!detail) return `@${player.cachedName}\n  [${player.group}] ${player.playRoutes[lineLevel - 7]}\n  [${playerTech}]\n`
     let infoMsg = ((!session.onebot) ? '-\n' : '') + `玩家: ${player.cachedName}`
 
     const infoMap: Record<MenuCX, () => string> = {
@@ -1021,7 +1024,8 @@ export function apply(ctx: Context, config: Config) {
   async function event_player_info(session: Session, playerId: string, detail: boolean = false): Promise<string> {
     let player = (await getUserInfo(playerId))[0]
     let einfo = await getRankInfo(playerId)
-    return detail ? `玩家: ${player.cachedName}\n  [${player.group}] ${einfo.totalRuns}\n  当前总分: ${einfo.totalScore}\n` : `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
+    return detail ? `玩家: ${player.cachedName}\n  [${player.group}] ${einfo.totalRuns}\n  当前总分: ${einfo.totalScore}\n` :
+      `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
   }
 
   async function drs_lines(session: Session): Promise<string> {
@@ -1225,8 +1229,8 @@ export function apply(ctx: Context, config: Config) {
 
   const end_msg = (lineLevel: number, lineId?: number): string =>
     !!lineId ?
-      `车队编号: ${lineId}\n———————————\n[集合地点: ${config.event.name ? config.event.name : '红活团未指定'}]\n[集团发车口令🔥 ${lineId} ]\n[录分指令: LRHH ${lineId} 分数]` :
-      `[小蛇座不在请手@队友]\n[集合地点bso没加成顺延]\n[集团发车口令🔰  A${lineLevel}  ]`
+      `[录分: LRHH ${lineId} 分数]\n[集合地点: ${config.event.name ? config.event.name : '红活团未指定'}]\n[集团发车编号🔥 ${lineId} ]` :
+      `[若小蛇座不在请手@队友]\n[集合默认BSO无加成顺延]\n[集团发车口令🔰  A${lineLevel}  ]`
 }
 
 function validate_tech(arg: string): number[] | null {
