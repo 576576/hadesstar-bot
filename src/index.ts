@@ -60,7 +60,7 @@ export const Config: Schema<Config> = Schema.object({
     Schema.object({}).description('红活模块配置'),
     Schema.union([
       Schema.object({
-        enabled: Schema.boolean().description('开启红活').hidden(),
+        enabled: Schema.boolean().description('开启红活').default(true).hidden(),
         name: Schema.string().description('红活集团名称').default(''),
         cool: Schema.number().description('红活加入冷却').default(3e5),
         minScore: Schema.number().description('红活最低分数').default(1e4),
@@ -538,9 +538,9 @@ export function apply(ctx: Context, config: Config) {
       config.event.enabled = !config.event.enabled
     })
 
-  ctx.command('PH', '查询红活排行')
-    .action(async ({ session }) => {
-      show_event_rank(session)
+  ctx.command('PH [arg]', '查询红活排行')
+    .action(async ({ session }, arg) => {
+      show_event_rank(session, arg)
     })
 
   ctx.command('CXHL <userId>')
@@ -856,26 +856,31 @@ export function apply(ctx: Context, config: Config) {
     return { totalRuns: rinfo.totalRuns, totalScore: rinfo.totalScore, runScore: score, lineLevel: einfo[0].lineType, lineId: lineId }
   }
 
-  async function show_event_rank(session: Session) {
+  async function show_event_rank(session: Session, minScore_or_rank: string): Promise<void> {
     if (!(await isAdmin(session))) {
       session.send('无管理权限')
       return
     }
-    let einfos = await ctx.database.select('erank').where(row => $.gt(row.totalScore, config.event.minScore)).orderBy(row => row.totalScore, 'desc').execute()
+    let minScore = config.event.minScore, minRank = null
+    if (!isNaN(+minScore_or_rank)) {
+      if (+minScore_or_rank > 200) minScore = +minScore_or_rank
+      else if (+minScore_or_rank > 0) minRank = +minScore_or_rank
+    }
+    let einfos = await ctx.database.select('erank').where(row => $.gt(row.totalScore, minScore)).orderBy(row => row.totalScore, 'desc').execute()
+    if (minRank != 0) einfos = einfos.slice(0, minRank)
     if (!einfos[0]) {
       await session.sendQueued('未检索到红活排行信息')
       return
     }
-    let h_msg = head_msg(session)
-    let tmp = [h_msg, h_msg, h_msg, h_msg], index = 0
-    await session.sendQueued(`-${config.event.name}红活榜单-\n分数阈值: ${config.event.minScore}`)
+    let tmp = [], index = 0
+    await session.sendQueued(`${config.event.name}红活榜\n分数阈值: ${minScore}${!minRank ? '' : '\n排名阈值: ' + minRank}`)
     for (const einfo of einfos) {
       let index2 = Math.floor(index / 15)
       tmp[index2] += `${++index}. ${await event_player_info(session, einfo.qid)}\n`
     }
+    let h_msg = head_msg(session)
     for (var i of tmp) {
-      if (i === h_msg) continue
-      await session.sendQueued(i.trim())
+      await session.sendQueued(h_msg.concat(i).trim())
     }
   }
 
