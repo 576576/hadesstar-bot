@@ -873,13 +873,14 @@ export function apply(ctx: Context, config: Config) {
       return
     }
     let h_msg = head_msg(session)
-    let tmp: string[] = [], index = 0
+    let tmp: string[] = ['', '', '', '', ''], index = 0
     await session.sendQueued(`${config.event.name}红活榜\n分数阈值: ${minScore}${!minRank ? '' : '\n排名阈值: ' + minRank}`)
     for (const einfo of einfos) {
       let index2 = Math.floor(index / 15)
       tmp[index2] += `${++index}. ${await event_player_info(session, einfo.qid)}\n`
     }
     for (var i of tmp) {
+      if (!i.length) continue
       await session.sendQueued(h_msg + i.trim())
     }
   }
