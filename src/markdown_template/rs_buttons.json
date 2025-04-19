@@ -1,0 +1,84 @@
+{
+    "rows": [
+      {
+        "buttons": [
+          {
+            "id": "1",
+            "render_data": {
+              "label": "三人排队",
+              "visited_label": "加入中...",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法加入三人排队",
+              "data": "/D",
+              "at_bot_show_channel_list": false,
+              "enter": false
+            }
+          },
+          {
+            "id": "2",
+            "render_data": {
+              "label": "双人排队",
+              "visited_label": "加入中...",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法加入双人排队",
+              "data": "/K",
+              "at_bot_show_channel_list": false,
+              "enter": false
+            }
+          }
+        ]
+      },
+      {
+        "buttons": [
+          {
+            "id": "3",
+            "render_data": {
+              "label": "退出列队",
+              "visited_label": "退出中...",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法退出列队",
+              "data": "/TC",
+              "at_bot_show_channel_list": false,
+              "enter": true
+            }
+          }
+        ]
+      }
+    ]
+  }

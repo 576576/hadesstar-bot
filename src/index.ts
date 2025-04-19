@@ -12,7 +12,7 @@ export interface Config {
   drsWaitTime: number
   customLineLength: number
   strictMode: boolean
-  buttonId: string
+  templatesId: { rs2?: string, rs3?: string, drs_b?: string, event_b?: string }
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
   event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
   menuCX: MenuCX
@@ -36,12 +36,21 @@ export const Config: Schema<Config> = Schema.object({
   customLineLength: Schema.number()
     .default(0)
     .description('自定义队伍的默认长度'),
-  buttonId: Schema.string()
-    .description('申请的qq快捷排队模板id'),
   menuCX: Schema.bitset(MenuCX)
     .default(MenuCX.GROUP | MenuCX.LICENCE | MenuCX.ROUTES | MenuCX.TECHS)
     .description('要在CX指令显示的菜单项'),
-
+  templatesId: Schema.intersect([
+    Schema.object({}).description('申请的qq开放平台模板id'),
+    Schema.union([
+      Schema.object({
+        rs2: Schema.string().description('双人排队md模板id').default(''),
+        rs3: Schema.string().description('三人排队md模板id').default(''),
+        drs_b: Schema.string().description('暗红巨星按钮模板id').default(''),
+        event_b: Schema.string().description('红星活动按钮模板id').default(''),
+      }),
+      Schema.object({}),
+    ])
+  ]),
   admin: Schema.intersect([
     Schema.object({
       enabled: Schema.boolean().default(true).description('启用内置权限模块'),
@@ -339,8 +348,8 @@ export function apply(ctx: Context, config: Config) {
       session.send('已清除所有自定义队列')
     })
 
-  ctx.command('cs <arg:text>')
-    .action(async ({ session }, arg) => {
+  ctx.command('cs')
+    .action(async ({ session }) => {
       session.send('ok')
     })
 
@@ -349,8 +358,8 @@ export function apply(ctx: Context, config: Config) {
       let isInit = await init_status(session)
       if (!qid || isNaN(+qid)) {
         if (isInit) {
-          session.send('你已初始化,无需初始化\n信息如下')
-          session.execute('CX')
+          await session.send('你已初始化,信息如下')
+          await session.execute('CX')
           return
         }
         else {
@@ -364,7 +373,8 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       if (isInit && !admin) {
-        session.send('初始化失败\n玩家信息已初始化,请勿重复操作,如需更改请联系管理')
+        await session.send('初始化失败\n玩家信息已初始化,如需更改请联系管理\n信息如下:')
+        await session.execute('CX')
         return
       }
       if (!openId) openId = session.userId
@@ -949,11 +959,13 @@ export function apply(ctx: Context, config: Config) {
       let waitTimeLeft = element.waitDue - Date.now()
       if (waitTimeLeft <= 0) {
         await ctx.database.remove('dlines', { qid: element.qid })
-        await session.send(`${head_msg(session)}${await getUserName(session, element.qid)} 超时被踢出${dinfo[0].lineType}队列`)
+        await session.send(`${head_msg(session)}${await getUserName(session, element.qid)} 超时被踢出${checkType}队列`)
         continue
       }
-      let timer = format_time(waitTimeLeft)
-      foundTimeList.push(timer)
+      else {
+        let timer = format_time(waitTimeLeft)
+        foundTimeList.push(timer)
+      }
     }
     return foundTimeList
   }
@@ -1067,10 +1079,6 @@ export function apply(ctx: Context, config: Config) {
     return (await ctx.database.get('erank', playerId, ['totalRuns', 'totalScore']))[0] || { totalRuns: 0, totalScore: 0 }
   }
 
-  async function getGroup(playerId: string): Promise<string> {
-    return (await ctx.database.get('players', playerId, ['group']))[0].group
-  }
-
   async function getUserName(session: Session, playerId?: string, isTryAt?: boolean): Promise<string> {
     if (session.onebot) {
       if (isTryAt) return `<at id="${playerId}",name="${playerId}">`
@@ -1169,12 +1177,16 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function send_menu(session: Session) {
+    if (!config.templatesId.drs_b) {
+      session.send('未设置快捷排队按钮模板ID')
+      return
+    }
     await session.qq.sendMessage(session.channelId, {
       content: '快捷排队',
       msg_type: 2,
       msg_id: session.messageId,
       keyboard: {
-        id: config.buttonId
+        id: config.templatesId.drs_b
       },
     })
   }

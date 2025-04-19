@@ -1,0 +1,84 @@
+{
+    "rows": [
+      {
+        "buttons": [
+          {
+            "id": "1",
+            "render_data": {
+              "label": "红活单刷",
+              "visited_label": "加入中...",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法加入红活单刷",
+              "data": "/HS",
+              "at_bot_show_channel_list": false,
+              "enter": false
+            }
+          },
+          {
+            "id": "2",
+            "render_data": {
+              "label": "查询红活",
+              "visited_label": "查询中",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法查询",
+              "data": "/CXHH",
+              "at_bot_show_channel_list": false,
+              "enter": true
+            }
+          }
+        ]
+      },
+      {
+        "buttons": [
+          {
+            "id": "3",
+            "render_data": {
+              "label": "登记红活分数",
+              "visited_label": "登记中...",
+              "style": 0
+            },
+            "action": {
+              "type": 2,
+              "permission": {
+                "type": 2,
+                "specify_role_ids": [
+                  "1",
+                  "2",
+                  "3"
+                ]
+              },
+              "click_limit": 10,
+              "unsupport_tips": "无法登记分数",
+              "data": "/LRHH ",
+              "at_bot_show_channel_list": false,
+              "enter": false
+            }
+          }
+        ]
+      }
+    ]
+  }
