@@ -5,14 +5,12 @@
 
 ---
 1⃣<qqbot-at-user id="{{.userId1}}" />  
-> {{.userGroup1}}  
-  {{.userInfo1}}  
+> {{.userInfo1}}  
 
 2⃣<qqbot-at-user id="{{.userId2}}" />  
-> {{.userGroup2}}  
-  {{.userInfo2}}  
+> {{.userInfo2}}  
 
 ---
 > [{{.tip1}}]  
   [{{.tip2}}]  
-  [集团发车口令{{.t1}}]
+  [集团发车{{.t1}}]

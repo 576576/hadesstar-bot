@@ -340,7 +340,7 @@ export function apply(ctx: Context, config: Config) {
     })
 
   ctx.command('XFZ <arg>', '清空自定义队列')
-    .action(async ({ session }, arg) => {
+    .action(async ({ session }, _arg) => {
       let dinfo = await ctx.database.get('dlines', {}, ['lineType'])
       for (const player of dinfo) {
         if (!isBasicType(player.lineType)) await quit_rs_type(session, player.lineType, false)
@@ -744,18 +744,23 @@ export function apply(ctx: Context, config: Config) {
       //多人发车
       timer = await drs_timer(session, joinType)
       if (lineNum >= lineMax) {
+        //发车后清空队伍并更新场次
         if (!joinInfo.isEvent)
-          await session.send(drs_msg + end_msg(joinInfo.lineLevel))
+          if (!session.qq || !config.templatesId.rs2)
+            await session.send(drs_msg + end_msg(joinInfo.lineLevel))
+          else
+            await send_md_rs(session, joinType, null, dinfo)
         else {
           lineId = await create_event_line(dinfo, joinType)
-          await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+          if (!session.qq || !config.templatesId.rs2)
+            await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+          else
+            await send_md_rs(session, joinType, lineId, dinfo)
         }
-
-        //发车后清空队伍并更新场次
         for (const playerId of dinfo) {
           let tmp = (await ctx.database.get('players', { qid: playerId }))[0].playRoutes
           tmp[joinInfo.lineLevel - 7] += 1
-          await ctx.database.upsert('players', (row) => [{ qid: playerId, playRoutes: tmp, latestLine: joinInfo.lineLevel }])
+          await ctx.database.upsert('players', (_row) => [{ qid: playerId, playRoutes: tmp, latestLine: joinInfo.lineLevel }])
         }
         await ctx.database.remove('dlines', { lineType: joinType })
       }
@@ -1191,6 +1196,64 @@ export function apply(ctx: Context, config: Config) {
     })
   }
 
+  async function send_md_rs(session: Session, lineType: string, lineId: number, players: string[]): Promise<boolean> {
+    if (!session.qq) return false
+    let isEvent = !!lineId
+    let end_info = end_tips(parseJoinType(lineType).lineLevel, lineId)
+    let openIds: string[] = [], templateId: string, userId3: { key: string; values: string[] }, userInfo3: { key: string; values: string[] }
+    for (const player of players) {
+      let openId = await findOpenIdFromQQid(player)
+      if (openId) openIds.push(openId)
+    }
+    if (players.length < 3) {
+      templateId = config.templatesId.rs2
+      userId3 = null, userInfo3 = null
+    }
+    else {
+      templateId = config.templatesId.rs3
+      userId3 = { key: 'userId3', values: [openIds[2]] }
+      userInfo3 = { key: 'userInfo3', values: [await playerInfo_md(isEvent, players[2])] }
+    }
+    try {
+      await session.qq.sendMessage(session.channelId, {
+        content: '',
+        msg_type: 2,
+        msg_id: session.messageId,
+        markdown: {
+          custom_template_id: templateId,
+          params: [
+            { key: 'lineType', values: [lineType] },
+            { key: 'userId1', values: [openIds[0]] },
+            { key: 'userInfo1', values: [await playerInfo_md(isEvent, players[0])] },
+            { key: 'userId2', values: [openIds[1]] },
+            { key: 'userInfo2', values: [await playerInfo_md(isEvent, players[1])] },
+            userId3, userInfo3,
+            { key: 'tip1', values: [end_info.tip1] },
+            { key: 'tip2', values: [end_info.tip2] },
+            { key: 't1', values: [end_info.t1] },
+          ]
+        },
+        keyboard: {
+          id: isEvent ? config.templatesId.event_b : config.templatesId.drs_b
+        },
+      })
+    }
+    catch (error) {
+      console.error('发送MD消息失败:', error)
+      return false
+    }
+    return true
+  }
+
+  async function playerInfo_md(isEvent: boolean, playerId: string): Promise<string> {
+    if (isEvent) {
+      let player = await getRankInfo(playerId)
+      return `[${player.totalScore}] ${player.totalRuns}`
+    }
+    let player = (await getUserInfo(playerId))[0]
+    return `[${style_tech(player.techs)}] ${player.playRoutes[0]}`
+  }
+
   async function humor_talk(session: Session) {
     if (!config.humor.enabled || Math.random() >= config.humor.chance || config.humor.talks.length == 0) return
     let saohua = config.humor.talks
@@ -1234,6 +1297,13 @@ export function apply(ctx: Context, config: Config) {
       lineLevel: isNaN(lineLevel!) ? null : lineLevel,
       lineCapacity: { R: 4, D: 3, K: 2, S: 1 }[capacityKey] ?? config.customLineLength
     }
+  }
+
+  function end_tips(lineLevel: number, lineId?: number): { tip1: string, tip2: string, t1: string } {
+    let tip1 = lineId ? `录分: LRHH ${lineId} 分数` : '小号若已进入请提前说明'
+    let tip2 = lineId ? `集合地点: ${config.event.name ? config.event.name : '红活团未指定'}` : '集合默认BSO无加成顺延'
+    let t1 = lineId ? `编号🔥 ${lineId} ` : `口令🔰  A${lineLevel} `
+    return { tip1: tip1, tip2: tip2, t1: t1 }
   }
 
   const head_name = async (session: Session, playerId: string): Promise<string> =>
