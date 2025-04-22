@@ -12,7 +12,7 @@ export interface Config {
   drsWaitTime: number
   customLineLength: number
   strictMode: boolean
-  templatesId: { rs2?: string, rs3?: string, drs_b?: string, event_b?: string }
+  templatesId: { rs2?: string, rs3?: string, drs_b?: string, event_b?: string, timeout?: string }
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
   event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
   menuCX: MenuCX
@@ -47,6 +47,7 @@ export const Config: Schema<Config> = Schema.object({
         rs3: Schema.string().description('三人排队md模板id').default(''),
         drs_b: Schema.string().description('暗红巨星按钮模板id').default(''),
         event_b: Schema.string().description('红星活动按钮模板id').default(''),
+        timeout: Schema.string().description('超时提示md模板id').default(''),
       }),
       Schema.object({}),
     ])
@@ -940,31 +941,34 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function show_event_result(): Promise<string> {
-    let einfos = await ctx.database.get('erank', {}, ['totalScore'])
+    let players = await ctx.database.get('erank', {}, ['totalScore'])
     let totalScore = 0
-    for (const einfo of einfos) totalScore += einfo.totalScore
-    return `红活总分: ${totalScore}\n红活人数: ${einfos.length}`
+    for (const player of players) totalScore += player.totalScore
+    return `红活总分: ${totalScore}\n红活人数: ${players.length}`
   }
 
   async function findIdFromDrs(checkType: string): Promise<string[]> {
-    let dinfo = await ctx.database.get('dlines', { lineType: checkType })
-    if (!dinfo[0]) return []
+    let players = await ctx.database.get('dlines', { lineType: checkType })
+    if (!players[0]) return []
     let foundIdList = []
-    dinfo.forEach(element => {
-      foundIdList.push(element.qid)
-    });
+    for (const player of players) {
+      foundIdList.push(player.qid)
+    }
     return foundIdList
   }
 
   async function findWaitFromDrs(session: Session, checkType: string): Promise<string[]> {
-    let dinfo = await ctx.database.get('dlines', { lineType: checkType })
-    if (dinfo[0] == undefined) return []
+    let players = await ctx.database.get('dlines', { lineType: checkType })
+    if (!players[0]) return []
     let foundTimeList: string[] = []
-    for (const element of dinfo) {
-      let waitTimeLeft = element.waitDue - Date.now()
+    for (const player of players) {
+      let waitTimeLeft = player.waitDue - Date.now()
       if (waitTimeLeft <= 0) {
-        await ctx.database.remove('dlines', { qid: element.qid })
-        await session.send(`${head_msg(session)}${await getUserName(session, element.qid)} 超时被踢出${checkType}队列`)
+        await ctx.database.remove('dlines', { qid: player.qid })
+        if (!session.qq || !config.templatesId.timeout)
+          await session.send(`${head_msg(session)}${await getUserName(session, player.qid, true)} 超时被踢出${checkType}队列`)
+        else
+          await send_md_timeout(session, checkType, player.qid)
         continue
       }
       else {
@@ -987,7 +991,7 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function drs_players_info(session: Session, targetType: string, isTryAt?: boolean): Promise<string> {
-    let d_level = (await parseJoinType(targetType)).lineLevel - 7
+    let d_level = parseJoinType(targetType).lineLevel - 7
     let playersId = await findIdFromDrs(targetType)
     if (!playersId.length) return `${targetType}队列为空`
     let d_msg = '', player: Players, players = await getUserInfo(playersId), playerName: string
@@ -1235,6 +1239,31 @@ export function apply(ctx: Context, config: Config) {
         },
         keyboard: {
           id: isEvent ? config.templatesId.event_b : config.templatesId.drs_b
+        },
+      })
+    }
+    catch (error) {
+      console.error('发送MD消息失败:', error)
+      return false
+    }
+    return true
+  }
+
+  async function send_md_timeout(session: Session, lineType: string, player: string): Promise<boolean> {
+    if (!session.qq) return false
+    let templateId = config.templatesId.timeout
+    let openId = await findOpenIdFromQQid(player)
+    try {
+      await session.qq.sendMessage(session.channelId, {
+        content: '',
+        msg_type: 2,
+        msg_id: session.messageId,
+        markdown: {
+          custom_template_id: templateId,
+          params: [
+            { key: 'userId', values: [openId] },
+            { key: 'lineType', values: [lineType] },
+          ]
         },
       })
     }
