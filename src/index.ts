@@ -1043,21 +1043,21 @@ export function apply(ctx: Context, config: Config) {
   }
 
   async function event_player_info(session: Session, playerId: string, detail: boolean = false): Promise<string> {
-    let player = (await getUserInfo(playerId))[0]
+    let dinfo = (await getUserInfo(playerId))[0]
     let einfo = await getRankInfo(playerId)
-    return detail ? `玩家: ${player.cachedName}\n  [${player.group}] ${einfo.totalRuns}\n  当前总分: ${einfo.totalScore}\n` :
+    return detail ? `玩家: ${dinfo.cachedName}\n  [${dinfo.group}] ${einfo.totalRuns}\n  当前总分: ${einfo.totalScore}\n` :
       `${await getUserName(session, playerId)}\n【总分:${einfo.totalScore} 场次:${einfo.totalRuns}】`
   }
 
   async function drs_lines(session: Session): Promise<string> {
-    let linesMsg = ((!session.onebot) ? '-\n' : ''), dinfo: string[], timer: string
+    let linesMsg = ((!session.onebot) ? '-\n' : ''), players: string[], timer: string
     for (var i = 7; i <= 12; i++) {
       timer = await drs_timer(session, `D${i}`)
-      dinfo = await findIdFromDrs(`D${i}`)
-      if (dinfo.length != 0) linesMsg += `D${i}队列——————\n${(await drs_players_info(session, `D${i}`))}${timer}\n`
+      players = await findIdFromDrs(`D${i}`)
+      if (players.length != 0) linesMsg += `D${i}队列——————\n${(await drs_players_info(session, `D${i}`))}${timer}\n`
       timer = await drs_timer(session, `K${i}`)
-      dinfo = await findIdFromDrs(`K${i}`)
-      if (dinfo.length != 0) linesMsg += `K${i}队列——————\n${(await drs_players_info(session, `K${i}`))}${timer}\n`
+      players = await findIdFromDrs(`K${i}`)
+      if (players.length != 0) linesMsg += `K${i}队列——————\n${(await drs_players_info(session, `K${i}`))}${timer}\n`
     }
     if (linesMsg == ((!session.onebot) ? '-\n' : '')) return '所有队列为空'
     else linesMsg += '—————————\n其余队列为空'
