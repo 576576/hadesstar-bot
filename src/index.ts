@@ -718,8 +718,8 @@ export function apply(ctx: Context, config: Config) {
     }
 
     //开始暗红星/红活队列
-    let foundType = await findDrsFromId(session, qqid)
     let timer = await drs_timer(session, joinType)
+    let foundType = await findDrsFromId(session, qqid)
     if (!foundType) {
       let info_msg: string, drs_msg: string
       if (lineMax == 1) {
@@ -770,7 +770,7 @@ export function apply(ctx: Context, config: Config) {
     }
     else if (foundType == joinType) {
       let info_msg = joinInfo.isEvent ? await event_players_info(session, joinType, true) : await drs_players_info(session, joinType, true)
-      session.send(`你已在${joinType}队伍中\n———————————\n${info_msg}\n———————————\n${timer}`)
+      session.send(`你已在${joinType}队伍中\n———————————\n${info_msg}———————————\n${timer}`)
     }
 
     else {
