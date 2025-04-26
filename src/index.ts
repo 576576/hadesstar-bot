@@ -286,7 +286,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('PD', '按钮快捷排队')
     .action(async ({ session }) => {
-      await send_button(session)
+      await send_button(session, false)
       await send_button(session, true)
     })
 
@@ -728,8 +728,9 @@ export function apply(ctx: Context, config: Config) {
           (await event_player_info(session, qqid, true)) :
           (await drs_player_info(session, qqid, false, joinInfo.lineLevel))
         drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${info_msg}———————————\n`
-        if (joinInfo.isEvent)
-          lineId = await create_event_line([qqid], joinType)
+        if (joinInfo.isEvent) lineId = await create_event_line([qqid], joinType)
+        if (joinInfo.isEvent && config.event.button) await send_button(session, true)
+
         await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
         await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: joinInfo.lineLevel }])
         return lineId
@@ -1173,7 +1174,7 @@ export function apply(ctx: Context, config: Config) {
     return false
   }
 
-  async function send_button(session: Session, isEvent: boolean = false): Promise<boolean> {
+  async function send_button(session: Session, isEvent: boolean): Promise<boolean> {
     let templateId = isEvent ? config.templatesId.event_b : config.templatesId.drs_b
     if (!templateId) return false
     try {
@@ -1195,7 +1196,6 @@ export function apply(ctx: Context, config: Config) {
     let isEvent = !!lineId, launchInfo = parseJoinType(lineType)
     if (!session.qq || !config.templatesId.rs2) {
       await session.send(drs_msg + end_msg(launchInfo.lineLevel, lineId))
-      if (isEvent && config.event.button) await send_button(session, true)
       return true
     }
     let end_info = end_tips(launchInfo.lineLevel, lineId)
