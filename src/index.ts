@@ -14,7 +14,7 @@ export interface Config {
   strictMode: boolean
   templatesId: { rs2?: string, rs3?: string, drs_b?: string, event_b?: string, timeout?: string }
   humor: { enabled?: boolean, chance?: number, talks?: string[] }
-  event: { enabled?: boolean, name?: string, cool?: number, minScore?: number }
+  event: { enabled?: boolean, name?: string, cool?: number, minScore?: number, button?: boolean }
   menuCX: MenuCX
 }
 
@@ -74,6 +74,7 @@ export const Config: Schema<Config> = Schema.object({
         name: Schema.string().description('红活集团名称').default(''),
         cool: Schema.number().description('红活加入冷却').default(3e5),
         minScore: Schema.number().description('红活最低分数').default(1e4),
+        button: Schema.boolean().description('是否发送按钮').default(false),
       }),
       Schema.object({}),
     ])
@@ -285,7 +286,8 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('PD', '按钮快捷排队')
     .action(async ({ session }) => {
-      await send_menu(session)
+      await send_button(session)
+      await send_button(session, true)
     })
 
   ctx.command('CZHX', '重置所有玩家数据')
@@ -1171,25 +1173,29 @@ export function apply(ctx: Context, config: Config) {
     return false
   }
 
-  async function send_menu(session: Session) {
-    if (!config.templatesId.drs_b) {
-      session.send('未设置快捷排队按钮模板ID')
-      return
+  async function send_button(session: Session, isEvent: boolean = false): Promise<boolean> {
+    let templateId = isEvent ? config.templatesId.event_b : config.templatesId.drs_b
+    if (!templateId) return false
+    try {
+      await session.qq.sendMessage(session.channelId, {
+        content: '快捷排队',
+        msg_type: 2,
+        msg_id: session.messageId,
+        keyboard: {
+          id: templateId
+        },
+      })
+    } catch (error) {
+      return false
     }
-    await session.qq.sendMessage(session.channelId, {
-      content: '快捷排队',
-      msg_type: 2,
-      msg_id: session.messageId,
-      keyboard: {
-        id: config.templatesId.drs_b
-      },
-    })
+    return true
   }
 
   async function send_msg_launch(session: Session, lineType: string, lineId: number, players: string[], drs_msg: string): Promise<boolean> {
     let isEvent = !!lineId, launchInfo = parseJoinType(lineType)
     if (!session.qq || !config.templatesId.rs2) {
       await session.send(drs_msg + end_msg(launchInfo.lineLevel, lineId))
+      if (isEvent && config.event.button) await send_button(session, true)
       return true
     }
     let end_info = end_tips(launchInfo.lineLevel, lineId)
