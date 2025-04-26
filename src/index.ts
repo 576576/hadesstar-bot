@@ -356,11 +356,10 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('CSH <qid> [openId]', '初始化玩家数据')
     .action(async ({ session }, qid, openId?) => {
-      let isInit = await init_status(session)
+      let isInit = await init_status(session), qqid = await getQQid(session)
       if (!qid || isNaN(+qid)) {
         if (isInit) {
-          await session.send('你已初始化,信息如下')
-          await session.execute('CX')
+          await session.send('玩家已初始化,信息如下:\n' + await drs_player_info(session, qqid))
           return
         }
         else {
@@ -370,17 +369,16 @@ export function apply(ctx: Context, config: Config) {
       }
       let admin = await isAdmin(session)
       if (!!openId && !admin) {
-        session.send('初始化失败\n无管理权限只能初始化自己')
+        session.send('无管理权限')
         return
       }
       if (isInit && !admin) {
-        await session.send('初始化失败\n玩家信息已初始化,如需更改请联系管理\n信息如下:')
-        await session.execute('CX')
+        await session.send('初始化失败\n玩家信息已初始化,如需更改请联系管理\n' + await drs_player_info(session, qqid))
         return
       }
       if (!openId) openId = session.userId
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId }])
-      session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入`)
+      await session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入\n${await drs_player_info(session, qqid)}`)
     })
 
   ctx.command('R <arg>', '加入四人组队')
@@ -543,7 +541,7 @@ export function apply(ctx: Context, config: Config) {
       if (eState !== undefined) config.event.enabled = !!eState
       else config.event.enabled = !config.event.enabled
       if (!config.event.enabled)
-        await session.send(`红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活${await show_event_result()}`)
+        await session.send(`红星活动已关闭\n输入PH查看排行\n输入CZHH重置红活\n${await show_event_result()}`)
       else {
         initRsEventTables()
         session.send('红星活动已开启\n输入HS7-12开始红活')
@@ -671,7 +669,7 @@ export function apply(ctx: Context, config: Config) {
     }
     let qqid = await getQQid(session)
 
-    let joinInfo = parseJoinType(joinType), lineId: number
+    let joinInfo = parseJoinType(joinType), lineId: number = null
     if (!joinInfo || joinInfo.lineCapacity <= 0) return
     const lineMax = joinInfo.lineCapacity
     if (!joinInfo.lineLevel) {
@@ -746,18 +744,9 @@ export function apply(ctx: Context, config: Config) {
       timer = await drs_timer(session, joinType)
       if (lineNum >= lineMax) {
         //发车后清空队伍并更新场次
-        if (!joinInfo.isEvent)
-          if (!session.qq || !config.templatesId.rs2)
-            await session.send(drs_msg + end_msg(joinInfo.lineLevel))
-          else
-            await send_md_rs(session, joinType, null, dinfo)
-        else {
-          lineId = await create_event_line(dinfo, joinType)
-          if (!session.qq || !config.templatesId.rs2)
-            await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
-          else
-            await send_md_rs(session, joinType, lineId, dinfo)
-        }
+        if (joinInfo.isEvent) lineId = await create_event_line(dinfo, joinType)
+        await send_msg_launch(session, joinType, lineId, dinfo, drs_msg)
+
         for (const playerId of dinfo) {
           let tmp = (await ctx.database.get('players', { qid: playerId }))[0].playRoutes
           tmp[joinInfo.lineLevel - 7] += 1
@@ -965,10 +954,7 @@ export function apply(ctx: Context, config: Config) {
       let waitTimeLeft = player.waitDue - Date.now()
       if (waitTimeLeft <= 0) {
         await ctx.database.remove('dlines', { qid: player.qid })
-        if (!session.qq || !config.templatesId.timeout)
-          await session.send(`${head_msg(session)}${await getUserName(session, player.qid, true)} 超时被踢出${checkType}队列`)
-        else
-          await send_md_timeout(session, checkType, player.qid)
+        await send_msg_timeout(session, checkType, player.qid)
         continue
       }
       else {
@@ -1200,10 +1186,13 @@ export function apply(ctx: Context, config: Config) {
     })
   }
 
-  async function send_md_rs(session: Session, lineType: string, lineId: number, players: string[]): Promise<boolean> {
-    if (!session.qq) return false
-    let isEvent = !!lineId
-    let end_info = end_tips(parseJoinType(lineType).lineLevel, lineId)
+  async function send_msg_launch(session: Session, lineType: string, lineId: number, players: string[], drs_msg: string): Promise<boolean> {
+    let isEvent = !!lineId, launchInfo = parseJoinType(lineType)
+    if (!session.qq || !config.templatesId.rs2) {
+      await session.send(drs_msg + end_msg(launchInfo.lineLevel, lineId))
+      return true
+    }
+    let end_info = end_tips(launchInfo.lineLevel, lineId)
     let openIds: string[] = [], templateId: string, userId3: { key: string; values: string[] }, userInfo3: { key: string; values: string[] }
     for (const player of players) {
       let openId = await findOpenIdFromQQid(player)
@@ -1243,14 +1232,17 @@ export function apply(ctx: Context, config: Config) {
       })
     }
     catch (error) {
-      console.error('发送MD消息失败:', error)
+      await session.send(drs_msg + end_msg(launchInfo.lineLevel, lineId))
       return false
     }
     return true
   }
 
-  async function send_md_timeout(session: Session, lineType: string, player: string): Promise<boolean> {
-    if (!session.qq) return false
+  async function send_msg_timeout(session: Session, lineType: string, player: string): Promise<boolean> {
+    if (!session.qq || !config.templatesId.timeout) {
+      await session.send(`${head_msg(session)}${await getUserName(session, player, true)} 超时被踢出${lineType}队列`)
+      return true
+    }
     let templateId = config.templatesId.timeout
     let openId = await findOpenIdFromQQid(player)
     try {
@@ -1268,7 +1260,7 @@ export function apply(ctx: Context, config: Config) {
       })
     }
     catch (error) {
-      console.error('发送MD消息失败:', error)
+      await session.send(`${head_msg(session)}${await getUserName(session, player, true)} 超时被踢出${lineType}队列`)
       return false
     }
     return true
