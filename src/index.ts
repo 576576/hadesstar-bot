@@ -729,9 +729,10 @@ export function apply(ctx: Context, config: Config) {
           (await drs_player_info(session, qqid, false, joinInfo.lineLevel))
         drs_msg = `${await head_name(session, qqid)} 加入${joinType}队伍\n———————————\n${info_msg}———————————\n`
         if (joinInfo.isEvent) lineId = await create_event_line([qqid], joinType)
-        if (joinInfo.isEvent && config.event.button) await send_button(session, true)
 
         await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
+        if (joinInfo.isEvent && config.event.button) await send_button(session, true)
+        
         await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: joinInfo.lineLevel }])
         return lineId
       }
