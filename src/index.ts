@@ -380,7 +380,7 @@ export function apply(ctx: Context, config: Config) {
       }
       if (!openId) openId = session.userId
       await ctx.database.upsert('players', () => [{ qid: qid, openId: openId }])
-      await session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入\n${await drs_player_info(session, qqid)}`)
+      await session.send(`${openId}: 绑定了${qid}\n请先录入信息,如果使用过旧Bot则无需重新录入\n${await drs_player_info(session, qqid, true, null, true)}`)
     })
 
   ctx.command('R <arg>', '加入四人组队')
@@ -732,7 +732,7 @@ export function apply(ctx: Context, config: Config) {
 
         await session.send(drs_msg + end_msg(joinInfo.lineLevel, lineId))
         if (joinInfo.isEvent && config.event.button) await send_button(session, true)
-        
+
         await ctx.database.upsert('players', () => [{ qid: qqid, latestLine: joinInfo.lineLevel }])
         return lineId
       }
@@ -746,7 +746,7 @@ export function apply(ctx: Context, config: Config) {
 
       //多人发车
       timer = await drs_timer(session, joinType)
-      if (lineNum >= lineMax) {
+      if (lineNum == lineMax) {
         //发车后清空队伍并更新场次
         if (joinInfo.isEvent) lineId = await create_event_line(dinfo, joinType)
         await send_msg_launch(session, joinType, lineId, dinfo, drs_msg)
@@ -1006,9 +1006,9 @@ export function apply(ctx: Context, config: Config) {
     return d_msg
   }
 
-  async function drs_player_info(session: Session, playerId: string, detail: boolean = true, lineLevel?: number): Promise<string> {
+  async function drs_player_info(session: Session, playerId: string, detail: boolean = true, lineLevel?: number, skipInitCheck = false): Promise<string> {
     let isInit = await init_status(session, playerId)
-    if (!isInit || !playerId) return '未检索到玩家信息\n或玩家未初始化'
+    if (!skipInitCheck && !isInit || !playerId) return '未检索到玩家信息\n或玩家未初始化'
     let player = (await getUserInfo(playerId))[0]
     if (!player) return '未检索到玩家信息'
     let playerTech = style_tech(player.techs)
